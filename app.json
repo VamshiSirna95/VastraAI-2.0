@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "vastra",
+    "slug": "vastra",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "vastra",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#000000"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#000000"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
