@@ -309,6 +309,18 @@ export interface LorryReceipt {
   updated_at: string;
 }
 
+export interface AnalyticsData {
+  totalPOValue: number;
+  totalPOCount: number;
+  totalGRNCount: number;
+  totalVendorCount: number;
+  monthlyPOValue: { month: string; value: number }[];
+  topVendors: { name: string; value: number; count: number }[];
+  grnPerformance: { completed: number; partial: number; pending: number };
+  categoryBreakdown: { category: string; count: number; value: number }[];
+  tripBudget: { name: string; budget: number; spent: number }[];
+}
+
 // Size templates per garment type
 export const SIZE_TEMPLATES: Record<string, string[]> = {
   'Shirt': ['S', 'M', 'L', 'XL', 'XXL'],

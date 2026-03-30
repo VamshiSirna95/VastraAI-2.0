@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { CREATE_TABLES } from './schema';
-import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt, GRNSizeData, Store, StockAllocation, User } from './types';
+import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt, GRNSizeData, Store, StockAllocation, User, AnalyticsData } from './types';
 import { SIZE_TEMPLATES } from './types';
 
 // ── DB singleton ──────────────────────────────────────────────────────────────
@@ -1425,4 +1425,117 @@ export async function updateLastLogin(userId: number): Promise<void> {
 export async function getUserCount(): Promise<number> {
   const row = await getDb().getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM users');
   return row?.count ?? 0;
+}
+
+// ── Analytics ─────────────────────────────────────────────────────────────────
+
+const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export async function getAnalyticsData(dateFrom: string, dateTo: string): Promise<AnalyticsData> {
+  const db = getDb();
+
+  // Total PO metrics
+  const poMetrics = await db.getFirstAsync<{ total_value: number; total_count: number }>(
+    `SELECT COALESCE(SUM(total_value),0) as total_value, COUNT(*) as total_count
+     FROM purchase_orders
+     WHERE is_deleted = 0 AND status != 'draft'
+       AND created_at >= ? AND created_at <= ?`,
+    [dateFrom, dateTo + 'T23:59:59']
+  );
+
+  // Total GRN count
+  const grnMetrics = await db.getFirstAsync<{ total_count: number }>(
+    `SELECT COUNT(*) as total_count FROM grn_records
+     WHERE created_at >= ? AND created_at <= ?`,
+    [dateFrom, dateTo + 'T23:59:59']
+  );
+
+  // Active vendor count
+  const vendorMetrics = await db.getFirstAsync<{ total_count: number }>(
+    `SELECT COUNT(DISTINCT vendor_id) as total_count FROM purchase_orders
+     WHERE is_deleted = 0 AND created_at >= ? AND created_at <= ?`,
+    [dateFrom, dateTo + 'T23:59:59']
+  );
+
+  // Monthly PO value — last 6 months from date range
+  const monthlyRows = await db.getAllAsync<{ month: string; value: number }>(
+    `SELECT strftime('%m', created_at) as month, COALESCE(SUM(total_value),0) as value
+     FROM purchase_orders
+     WHERE is_deleted = 0 AND status != 'draft'
+       AND created_at >= ? AND created_at <= ?
+     GROUP BY strftime('%Y-%m', created_at)
+     ORDER BY strftime('%Y-%m', created_at) ASC`,
+    [dateFrom, dateTo + 'T23:59:59']
+  );
+  const monthlyPOValue = monthlyRows.map((r) => ({
+    month: MONTH_NAMES[parseInt(r.month, 10)] ?? r.month,
+    value: r.value,
+  }));
+
+  // Top vendors by PO value
+  const vendorRows = await db.getAllAsync<{ name: string; value: number; count: number }>(
+    `SELECT v.name, COALESCE(SUM(po.total_value),0) as value, COUNT(po.id) as count
+     FROM vendors v
+     JOIN purchase_orders po ON po.vendor_id = v.id
+     WHERE po.is_deleted = 0 AND po.status != 'draft'
+       AND po.created_at >= ? AND po.created_at <= ?
+     GROUP BY v.id
+     ORDER BY value DESC
+     LIMIT 5`,
+    [dateFrom, dateTo + 'T23:59:59']
+  );
+
+  // GRN performance
+  const grnCompleted = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) as count FROM grn_records WHERE status = 'completed'
+     AND created_at >= ? AND created_at <= ?`,
+    [dateFrom, dateTo + 'T23:59:59']
+  );
+  const grnPartial = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) as count FROM grn_records WHERE status = 'partial'
+     AND created_at >= ? AND created_at <= ?`,
+    [dateFrom, dateTo + 'T23:59:59']
+  );
+  const grnPending = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) as count FROM grn_records WHERE status = 'pending'
+     AND created_at >= ? AND created_at <= ?`,
+    [dateFrom, dateTo + 'T23:59:59']
+  );
+
+  // Category breakdown
+  const categoryRows = await db.getAllAsync<{ category: string; count: number; value: number }>(
+    `SELECT COALESCE(pr.garment_type, 'Other') as category,
+            COUNT(pi.id) as count,
+            COALESCE(SUM(pi.unit_price * (pi.size_s + pi.size_m + pi.size_l + pi.size_xl + pi.size_xxl + pi.size_free)), 0) as value
+     FROM po_items pi
+     JOIN purchase_orders po ON po.id = pi.po_id
+     LEFT JOIN products pr ON pr.id = pi.product_id
+     WHERE po.is_deleted = 0 AND po.status != 'draft'
+       AND po.created_at >= ? AND po.created_at <= ?
+     GROUP BY category
+     ORDER BY value DESC
+     LIMIT 6`,
+    [dateFrom, dateTo + 'T23:59:59']
+  );
+
+  // Trip budgets
+  const tripRows = await db.getAllAsync<{ name: string; budget: number; spent: number }>(
+    `SELECT name, budget, spent FROM purchase_trips ORDER BY created_at DESC LIMIT 5`
+  );
+
+  return {
+    totalPOValue: poMetrics?.total_value ?? 0,
+    totalPOCount: poMetrics?.total_count ?? 0,
+    totalGRNCount: grnMetrics?.total_count ?? 0,
+    totalVendorCount: vendorMetrics?.total_count ?? 0,
+    monthlyPOValue,
+    topVendors: vendorRows,
+    grnPerformance: {
+      completed: grnCompleted?.count ?? 0,
+      partial: grnPartial?.count ?? 0,
+      pending: grnPending?.count ?? 0,
+    },
+    categoryBreakdown: categoryRows,
+    tripBudget: tripRows,
+  };
 }
