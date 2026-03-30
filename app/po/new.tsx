@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   TextInput, Alert,
@@ -155,6 +155,8 @@ export default function NewPOScreen() {
   const [deliveryDate, setDeliveryDate] = useState('');
   const [deliverySchedule, setDeliverySchedule] = useState<DeliverySchedule | null>(null);
   const [saving, setSaving] = useState(false);
+  // Ref to persist vendor_id synchronously (avoids async state update timing issue)
+  const vendorIdRef = useRef<string | undefined>(undefined);
 
   // Load vendors + trips on mount; pre-fill if editing
   useEffect(() => {
@@ -170,6 +172,7 @@ export default function NewPOScreen() {
       if (isEditing && params.editId) {
         const existing = await getPOById(params.editId);
         if (existing) {
+          vendorIdRef.current = existing.vendor_id;
           setPo({
             vendor_id: existing.vendor_id,
             trip_id: existing.trip_id,
@@ -230,8 +233,9 @@ export default function NewPOScreen() {
 
   const ensurePO = async (): Promise<string> => {
     if (poId) return poId;
-    if (!po.vendor_id) throw new Error('Select a vendor first');
-    const id = await createPO({ ...po, notes, delivery_date: deliveryDate || undefined });
+    const vid = po.vendor_id ?? vendorIdRef.current;
+    if (!vid) throw new Error('Select a vendor first');
+    const id = await createPO({ ...po, vendor_id: vid, notes, delivery_date: deliveryDate || undefined });
     setPoId(id);
     return id;
   };
@@ -326,7 +330,10 @@ export default function NewPOScreen() {
             placeholder="Select vendor…"
             onChange={(name) => {
               const v = vendors.find((vv) => vv.name === name);
-              if (v) setPo((prev) => ({ ...prev, vendor_id: v.id }));
+              if (v) {
+                vendorIdRef.current = v.id;
+                setPo((prev) => ({ ...prev, vendor_id: v.id }));
+              }
             }}
           />
           <GlassPicker
