@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import {
@@ -13,6 +13,7 @@ import {
 } from '@expo-google-fonts/inter';
 import { initDatabase } from '../db/database';
 import { seedDemoData } from '../db/seed';
+import { isLoggedIn } from '../services/auth';
 import AuroraBackground from '../components/AuroraBackground';
 
 SplashScreen.preventAutoHideAsync();
@@ -30,24 +31,37 @@ export default function RootLayout() {
     Inter_900Black,
   });
   const [dbReady, setDbReady] = useState(false);
+  const [authed, setAuthed] = useState<boolean | null>(null);
+  const router = useRouter();
+  const segments = useSegments();
 
   useEffect(() => {
     initDatabase()
       .then(() => seedDemoData())
-      .then(() => setDbReady(true))
+      .then(async () => {
+        const loggedIn = await isLoggedIn();
+        setAuthed(loggedIn);
+        setDbReady(true);
+      })
       .catch((err) => {
         console.error('DB init failed:', err);
-        setDbReady(true); // still show app
+        setAuthed(false);
+        setDbReady(true);
       });
   }, []);
 
   useEffect(() => {
-    if (fontsLoaded && dbReady) {
-      SplashScreen.hideAsync();
+    if (!fontsLoaded || !dbReady || authed === null) return;
+    SplashScreen.hideAsync();
+    const inLogin = segments[0] === 'login';
+    if (!authed && !inLogin) {
+      router.replace('/login');
+    } else if (authed && inLogin) {
+      router.replace('/(tabs)');
     }
-  }, [fontsLoaded, dbReady]);
+  }, [fontsLoaded, dbReady, authed, segments, router]);
 
-  if (!fontsLoaded || !dbReady) return null;
+  if (!fontsLoaded || !dbReady || authed === null) return null;
 
   return (
     <View style={styles.root}>

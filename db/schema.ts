@@ -241,6 +241,18 @@ export const CREATE_TABLES = [
     created_at TEXT DEFAULT (datetime('now'))
   )`,
 
+  // Users
+  `CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'staff',
+    phone TEXT UNIQUE NOT NULL,
+    pin TEXT NOT NULL,
+    is_active INTEGER DEFAULT 1,
+    last_login TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
+
   // Lorry Receipts
   `CREATE TABLE IF NOT EXISTS lorry_receipts (
     id TEXT PRIMARY KEY,

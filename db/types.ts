@@ -283,6 +283,17 @@ export interface StockAllocation {
   store_code?: string;
 }
 
+export interface User {
+  id: number;
+  name: string;
+  role: string;
+  phone: string;
+  pin: string;
+  is_active: number;
+  last_login?: string;
+  created_at: string;
+}
+
 export interface LorryReceipt {
   id: string;
   po_id: string;

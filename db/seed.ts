@@ -1,4 +1,4 @@
-import { createVendor, createProduct, getProductCount, createTrip, getTrips, createPO, addPOItem, updateTripSpent, getStores, createStore } from './database';
+import { createVendor, createProduct, getProductCount, createTrip, getTrips, createPO, addPOItem, updateTripSpent, getStores, createStore, getUserCount, createUser } from './database';
 
 async function seedStores(): Promise<void> {
   const existing = await getStores();
@@ -15,8 +15,16 @@ async function seedStores(): Promise<void> {
   }
 }
 
+async function seedUsers(): Promise<void> {
+  const count = await getUserCount();
+  if (count > 0) return;
+  await createUser({ name: 'Vamshi K', role: 'owner', phone: '9999999999', pin: '1234', is_active: 1 });
+  await createUser({ name: 'Demo Staff', role: 'staff', phone: '0000000000', pin: '0000', is_active: 1 });
+}
+
 export async function seedDemoData(): Promise<void> {
   await seedStores();
+  await seedUsers();
 
   const count = await getProductCount();
 

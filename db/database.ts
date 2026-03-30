@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { CREATE_TABLES } from './schema';
-import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt, GRNSizeData, Store, StockAllocation } from './types';
+import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt, GRNSizeData, Store, StockAllocation, User } from './types';
 import { SIZE_TEMPLATES } from './types';
 
 // ── DB singleton ──────────────────────────────────────────────────────────────
@@ -1278,4 +1278,44 @@ export async function getDashboardData(): Promise<DashboardData> {
   ].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 8);
 
   return { activePOs, pendingGRN, totalVendors, monthValue, monthlyTrend, vendorQuality, recentActivity: combined };
+}
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+
+export function hashPin(pin: string): string {
+  let hash = 5381;
+  for (let i = 0; i < pin.length; i++) {
+    hash = ((hash << 5) + hash) ^ pin.charCodeAt(i);
+    hash = hash >>> 0;
+  }
+  return hash.toString(16);
+}
+
+export async function createUser(data: { name: string; role: string; phone: string; pin: string; is_active?: number }): Promise<number> {
+  const db = getDb();
+  const pinHash = hashPin(data.pin);
+  const result = await db.runAsync(
+    `INSERT OR IGNORE INTO users (name, role, phone, pin, is_active) VALUES (?,?,?,?,?)`,
+    [data.name, data.role, data.phone, pinHash, data.is_active ?? 1]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function getUserByPhone(phone: string): Promise<User | null> {
+  return getDb().getFirstAsync<User>('SELECT * FROM users WHERE phone = ? AND is_active = 1', [phone]);
+}
+
+export async function verifyPin(userId: number, pin: string): Promise<boolean> {
+  const user = await getDb().getFirstAsync<User>('SELECT * FROM users WHERE id = ?', [userId]);
+  if (!user) return false;
+  return user.pin === hashPin(pin);
+}
+
+export async function updateLastLogin(userId: number): Promise<void> {
+  await getDb().runAsync(`UPDATE users SET last_login = datetime('now') WHERE id = ?`, [userId]);
+}
+
+export async function getUserCount(): Promise<number> {
+  const row = await getDb().getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM users');
+  return row?.count ?? 0;
 }
