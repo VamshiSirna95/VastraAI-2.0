@@ -1192,3 +1192,90 @@ export async function getAllocationsByStore(storeId: number): Promise<StockAlloc
 export async function deleteAllocationsByGRN(grnId: string): Promise<void> {
   await getDb().runAsync('DELETE FROM stock_allocations WHERE grn_id = ?', [grnId]);
 }
+
+// ── Dashboard Data ────────────────────────────────────────────────────────────
+
+export interface DashboardData {
+  activePOs: number;
+  pendingGRN: number;
+  totalVendors: number;
+  monthValue: number;
+  monthlyTrend: { month: string; value: number }[];
+  vendorQuality: { vendor: string; acceptRate: number }[];
+  recentActivity: { type: string; description: string; timestamp: string }[];
+}
+
+export async function getDashboardData(): Promise<DashboardData> {
+  const db = getDb();
+
+  // Active POs
+  const poRow = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) as count FROM purchase_orders WHERE is_deleted = 0 AND status NOT IN ('closed')`
+  );
+  const activePOs = poRow?.count ?? 0;
+
+  // Pending GRN items
+  const grnRow = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) as count FROM grn_items WHERE status = 'pending'`
+  );
+  const pendingGRN = grnRow?.count ?? 0;
+
+  // Total active vendors
+  const vRow = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) as count FROM vendors WHERE is_active = 1`
+  );
+  const totalVendors = vRow?.count ?? 0;
+
+  // Current month PO value
+  const monthRow = await db.getFirstAsync<{ val: number }>(
+    `SELECT COALESCE(SUM(total_value),0) as val FROM purchase_orders
+     WHERE is_deleted = 0 AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')`
+  );
+  const monthValue = monthRow?.val ?? 0;
+
+  // Monthly PO value trend — last 6 months
+  const trendRows = await db.getAllAsync<{ month: string; value: number }>(
+    `SELECT strftime('%b', created_at) as month,
+            COALESCE(SUM(total_value),0) as value
+     FROM purchase_orders
+     WHERE is_deleted = 0
+       AND created_at >= date('now', '-6 months')
+     GROUP BY strftime('%Y-%m', created_at)
+     ORDER BY strftime('%Y-%m', created_at) ASC`
+  );
+  const monthlyTrend = trendRows.length > 0 ? trendRows : [{ month: 'Now', value: 0 }];
+
+  // Vendor quality — accept rate from GRN items joined to PO
+  const qualityRows = await db.getAllAsync<{ vendor: string; acceptRate: number }>(
+    `SELECT COALESCE(v.name, 'Unknown') as vendor,
+            CASE WHEN SUM(gi.received_qty) > 0
+                 THEN ROUND(100.0 * SUM(gi.accepted_qty) / SUM(gi.received_qty), 1)
+                 ELSE 0 END as acceptRate
+     FROM grn_items gi
+     JOIN grn_records gr ON gi.grn_id = gr.id
+     JOIN purchase_orders po ON gr.po_id = po.id
+     LEFT JOIN vendors v ON po.vendor_id = v.id
+     WHERE po.is_deleted = 0
+     GROUP BY po.vendor_id
+     ORDER BY acceptRate DESC
+     LIMIT 5`
+  );
+  const vendorQuality = qualityRows;
+
+  // Recent activity — last 8 events from POs and GRNs
+  const activityPOs = await db.getAllAsync<{ description: string; timestamp: string }>(
+    `SELECT 'PO ' || po_number || ' — ' || status as description, updated_at as timestamp
+     FROM purchase_orders WHERE is_deleted = 0
+     ORDER BY updated_at DESC LIMIT 4`
+  );
+  const activityGRNs = await db.getAllAsync<{ description: string; timestamp: string }>(
+    `SELECT 'GRN ' || grn_number || ' — ' || overall_status as description, updated_at as timestamp
+     FROM grn_records ORDER BY updated_at DESC LIMIT 4`
+  );
+  const combined = [
+    ...activityPOs.map((a) => ({ type: 'PO', description: a.description, timestamp: a.timestamp })),
+    ...activityGRNs.map((a) => ({ type: 'GRN', description: a.description, timestamp: a.timestamp })),
+  ].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 8);
+
+  return { activePOs, pendingGRN, totalVendors, monthValue, monthlyTrend, vendorQuality, recentActivity: combined };
+}

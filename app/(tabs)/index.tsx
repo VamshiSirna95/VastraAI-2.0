@@ -1,23 +1,16 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  Dimensions,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import Svg, { Path, Polyline } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
+import { LineChart, BarChart } from 'react-native-chart-kit';
 import { colors } from '../../constants/theme';
-import ModuleCard, { type PatternType, type MetricData } from '../../components/ModuleCard';
-import { getPOs, getGRNPendingCount, getVendorCount } from '../../db/database';
-import { calculateDelivery } from '../../services/delivery';
+import { getDashboardData, type DashboardData } from '../../db/database';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-// 20px padding on each side + 12px gap between 2 columns
-const CARD_WIDTH = Math.floor((SCREEN_WIDTH - 52) / 2);
+const CHART_WIDTH = SCREEN_WIDTH - 40;
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -26,19 +19,44 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-// ─── Sparkline ────────────────────────────────────────────────────────────────
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
 
-function Sparkline({ points, color }: { points: string; color: string }) {
+function formatINR(val: number): string {
+  if (val >= 100000) return '₹' + (val / 100000).toFixed(1) + 'L';
+  if (val >= 1000) return '₹' + (val / 1000).toFixed(1) + 'K';
+  return '₹' + val;
+}
+
+function timeAgo(ts: string): string {
+  const diff = Date.now() - new Date(ts).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+// ─── Stat Card ────────────────────────────────────────────────────────────────
+
+interface StatCardProps {
+  value: string;
+  label: string;
+  color: string;
+  sub?: string;
+}
+
+function StatCard({ value, label, color, sub }: StatCardProps) {
   return (
-    <Svg height={24} width={80} viewBox="0 0 60 18" preserveAspectRatio="none">
-      <Polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth={1.5}
-        opacity={0.5}
-      />
-    </Svg>
+    <View style={[styles.statCard, { borderColor: hexToRgba(color, 0.18) }]}>
+      <Text style={[styles.statValue, { color }]}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+      {sub ? <Text style={[styles.statSub, { color: hexToRgba(color, 0.6) }]}>{sub}</Text> : null}
+    </View>
   );
 }
 
@@ -48,45 +66,26 @@ function SectionLabel({ title }: { title: string }) {
   return <Text style={styles.sectionLabel}>{title}</Text>;
 }
 
-// ─── Stat Card ────────────────────────────────────────────────────────────────
+// ─── Activity Item ────────────────────────────────────────────────────────────
 
-interface StatCardProps {
-  value: string;
-  label: string;
-  color: string;
-  sparkPoints: string;
-}
-
-function StatCard({ value, label, color, sparkPoints }: StatCardProps) {
+function ActivityItem({ type, description, timestamp }: { type: string; description: string; timestamp: string }) {
+  const color = type === 'GRN' ? colors.teal : colors.amber;
   return (
-    <View style={styles.statCard}>
-      <Text style={[styles.statValue, { color }]}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Sparkline points={sparkPoints} color={color} />
+    <View style={styles.activityItem}>
+      <View style={[styles.activityDot, { backgroundColor: color }]} />
+      <Text style={styles.activityDesc} numberOfLines={1}>{description}</Text>
+      <Text style={styles.activityTime}>{timeAgo(timestamp)}</Text>
     </View>
   );
 }
 
 // ─── Quick Action ─────────────────────────────────────────────────────────────
 
-interface QuickActionProps {
-  label: string;
-  color: string;
-  icon: React.ReactNode;
-  onPress?: () => void;
-}
-
-function QuickAction({ label, color, icon, onPress }: QuickActionProps) {
+function QuickAction({ label, color, icon, onPress }: { label: string; color: string; icon: React.ReactNode; onPress?: () => void }) {
   return (
     <TouchableOpacity
       onPress={onPress}
-      style={[
-        styles.quickAction,
-        {
-          backgroundColor: hexToRgba(color, 0.08),
-          borderColor: hexToRgba(color, 0.15),
-        },
-      ]}
+      style={[styles.quickAction, { backgroundColor: hexToRgba(color, 0.08), borderColor: hexToRgba(color, 0.15) }]}
     >
       {icon}
       <Text style={[styles.quickActionLabel, { color }]}>{label}</Text>
@@ -94,563 +93,227 @@ function QuickAction({ label, color, icon, onPress }: QuickActionProps) {
   );
 }
 
-// ─── Module Data Types ────────────────────────────────────────────────────────
+// ─── Chart config ─────────────────────────────────────────────────────────────
 
-interface ModuleData {
-  name: string;
-  accent: string;
-  title: string;
-  metrics: MetricData[];
-  patternType: PatternType;
-}
+const chartConfig = {
+  backgroundGradientFrom: 'rgba(0,0,0,0)',
+  backgroundGradientFromOpacity: 0,
+  backgroundGradientTo: 'rgba(0,0,0,0)',
+  backgroundGradientToOpacity: 0,
+  color: (opacity = 1) => `rgba(93,202,165,${opacity})`,
+  labelColor: () => 'rgba(255,255,255,0.35)',
+  strokeWidth: 2,
+  propsForDots: { r: '3', strokeWidth: '1', stroke: '#5DCAA5' },
+  propsForBackgroundLines: { stroke: 'rgba(255,255,255,0.04)' },
+  decimalPlaces: 0,
+};
 
-// ─── Alert Item ───────────────────────────────────────────────────────────────
-
-interface AlertItemProps {
-  dotColor: string;
-  children: React.ReactNode;
-}
-
-function AlertItem({ dotColor, children }: AlertItemProps) {
-  return (
-    <View style={styles.alertItem}>
-      <View style={[styles.alertDot, { backgroundColor: dotColor }]} />
-      <Text style={styles.alertText}>{children}</Text>
-    </View>
-  );
-}
-
-// ─── Module Data ──────────────────────────────────────────────────────────────
-
-const modules: ModuleData[] = [
-  {
-    name: 'Enrichment',
-    accent: colors.teal,
-    title: 'Tag attributes',
-    patternType: 'wave',
-    metrics: [
-      { value: '847', label: 'Tagged', color: colors.teal },
-      { value: '92%', label: 'AI acc.', color: colors.textPrimary },
-    ],
-  },
-  {
-    name: 'Purchase',
-    accent: colors.amber,
-    title: 'Order builder',
-    patternType: 'grid',
-    metrics: [
-      { value: '12', label: 'Active', color: colors.amber },
-      { value: '₹3.4L', label: 'Week', color: colors.textPrimary },
-    ],
-  },
-  {
-    name: 'Warehouse',
-    accent: colors.blue,
-    title: 'GRN verify',
-    patternType: 'hexdots',
-    metrics: [
-      { value: '3', label: 'Pending', color: colors.red },
-      { value: '98%', label: 'Accept', color: colors.teal },
-    ],
-  },
-  {
-    name: 'Intelligence',
-    accent: colors.pink,
-    title: 'Similarity',
-    patternType: 'blobs',
-    metrics: [
-      { value: '24', label: 'Matches', color: colors.pink },
-      { value: '₹48K', label: 'Saved', color: colors.teal },
-    ],
-  },
-  {
-    name: 'Analytics',
-    accent: colors.purpleLight,
-    title: 'Refill engine',
-    patternType: 'zigzag',
-    metrics: [{ value: '8', label: 'Due', color: colors.purpleLight }],
-  },
-  {
-    name: 'Vendors',
-    accent: colors.red,
-    title: 'Rankings S+',
-    patternType: 'rings',
-    metrics: [{ value: '3', label: 'S+ rank', color: colors.teal }],
-  },
-];
+const barChartConfig = {
+  ...chartConfig,
+  color: (opacity = 1) => `rgba(239,159,39,${opacity})`,
+  propsForDots: { r: '0' },
+};
 
 // ─── Home Screen ──────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
   const router = useRouter();
-  const [activePOCount, setActivePOCount] = useState(0);
-  const [criticalPOCount, setCriticalPOCount] = useState(0);
-  const [grnPendingCount, setGrnPendingCount] = useState(0);
-  const [vendorCount, setVendorCount] = useState(0);
+  const [data, setData] = useState<DashboardData | null>(null);
 
   useFocusEffect(useCallback(() => {
-    const loadData = async () => {
-      const [allPOs, schedule, grnPending, vCount] = await Promise.all([
-        getPOs(),
-        calculateDelivery(0, 1),
-        getGRNPendingCount(),
-        getVendorCount(),
-      ]);
-      // Active POs = not closed, not deleted
-      const activeCount = allPOs.filter(
-        (p) => p.status !== 'closed' && !(p.is_deleted)
-      ).length;
-      setActivePOCount(activeCount);
-      setGrnPendingCount(grnPending);
-      setVendorCount(vCount);
-      if (schedule.urgency === 'CRITICAL') {
-        const critCount = allPOs.filter(
-          (p) => p.status === 'draft' || p.status === 'sent'
-        ).length;
-        setCriticalPOCount(critCount);
-      } else {
-        setCriticalPOCount(0);
-      }
-    };
-    loadData();
+    getDashboardData().then(setData).catch(() => {});
   }, []));
 
+  const trend = data?.monthlyTrend ?? [{ month: '—', value: 0 }];
+  const lineData = {
+    labels: trend.map((t) => t.month),
+    datasets: [{ data: trend.map((t) => Math.max(t.value, 0)) }],
+  };
+
+  const quality = data?.vendorQuality ?? [];
+  const barData = quality.length > 0
+    ? {
+        labels: quality.map((q) => q.vendor.substring(0, 6)),
+        datasets: [{ data: quality.map((q) => q.acceptRate) }],
+      }
+    : { labels: ['—'], datasets: [{ data: [0] }] };
+
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* ── Hero ─────────────────────────────────────────────────── */}
-        <View style={styles.hero}>
-          <View style={styles.glowTeal} />
-          <View style={styles.glowPurple} />
-          <Text style={styles.heroEyebrow}>MERCHANDISE INTELLIGENCE</Text>
-          <Text style={styles.heroTitle}>Scan. Tag.</Text>
-          <Text style={[styles.heroTitle, { color: colors.teal }]}>Sell smarter.</Text>
-          <Text style={styles.heroSubtitle}>K.M. Fashions — 7 stores active</Text>
-        </View>
+    <SafeAreaView style={styles.root} edges={['top']}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
 
-        {/* ── Critical Alert Banner ────────────────────────────────── */}
-        {criticalPOCount > 0 && (
-          <TouchableOpacity
-            style={styles.criticalBanner}
-            onPress={() => router.push('/(tabs)/orders')}
-            activeOpacity={0.8}
-          >
-            <View style={styles.criticalDot} />
-            <Text style={styles.criticalBannerText}>
-              {criticalPOCount} PO{criticalPOCount > 1 ? 's' : ''} need immediate attention
-            </Text>
-            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-              <Path d="M9 18l6-6-6-6" stroke="#E24B4A" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+        {/* Greeting */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.greeting}>{getGreeting()}, Vamshi</Text>
+            <Text style={styles.greetingSub}>K.M. Fashions — today at a glance</Text>
+          </View>
+          <TouchableOpacity onPress={() => router.push('/reports')} style={styles.reportBtn}>
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+              <Path d="M18 20V10M12 20V4M6 20v-6" stroke={colors.teal} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
             </Svg>
           </TouchableOpacity>
-        )}
-
-        {/* ── GRN Pending Alert ────────────────────────────────────── */}
-        {grnPendingCount > 0 && (
-          <TouchableOpacity
-            style={styles.grnBanner}
-            onPress={() => router.push('/(tabs)/orders')}
-            activeOpacity={0.8}
-          >
-            <View style={[styles.criticalDot, { backgroundColor: colors.blue }]} />
-            <Text style={styles.grnBannerText}>
-              {grnPendingCount} item{grnPendingCount > 1 ? 's' : ''} awaiting GRN verification
-            </Text>
-            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-              <Path d="M9 18l6-6-6-6" stroke={colors.blue} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-            </Svg>
-          </TouchableOpacity>
-        )}
-
-        {/* ── Stats Row ────────────────────────────────────────────── */}
-        <View style={styles.statsRow}>
-          <StatCard
-            value={String(activePOCount)}
-            label="Active POs"
-            color={colors.amber}
-            sparkPoints="0,10 10,9 20,11 30,8 40,10 50,9 60,8"
-          />
-          <StatCard
-            value={String(grnPendingCount)}
-            label="GRN due"
-            color={colors.red}
-            sparkPoints="0,12 10,10 20,13 30,9 40,12 50,8 60,10"
-          />
-          <StatCard
-            value={String(vendorCount)}
-            label="Vendors"
-            color={colors.blue}
-            sparkPoints="0,10 10,10 20,9 30,9 40,8 50,8 60,8"
-          />
         </View>
 
-        {/* ── Quick Actions ─────────────────────────────────────────── */}
+        {/* Stat Cards — horizontal scroll */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={styles.quickActionsScroll}
-          contentContainerStyle={styles.quickActionsContent}
+          contentContainerStyle={styles.statsRow}
         >
-          <QuickAction
-            label="Scan"
+          <StatCard value={String(data?.activePOs ?? '—')} label="Active POs" color={colors.amber} />
+          <StatCard value={String(data?.pendingGRN ?? '—')} label="GRN Pending" color={colors.red} />
+          <StatCard value={String(data?.totalVendors ?? '—')} label="Vendors" color={colors.blue} />
+          <StatCard
+            value={data ? formatINR(data.monthValue) : '—'}
+            label="This Month"
             color={colors.teal}
-            onPress={() => router.push('/(tabs)/scan')}
-            icon={
-              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                <Path
-                  d="M7 3H3v4M17 3h4v4M7 21H3v-4M17 21h4v-4"
-                  stroke={colors.teal}
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                />
-              </Svg>
-            }
-          />
-          <QuickAction
-            label="New article"
-            color={colors.amber}
-            onPress={() => router.push('/product/new')}
-            icon={
-              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                <Path
-                  d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"
-                  stroke={colors.amber}
-                  strokeWidth={2}
-                  strokeLinejoin="round"
-                />
-                <Path
-                  d="M12 17a4 4 0 100-8 4 4 0 000 8z"
-                  stroke={colors.amber}
-                  strokeWidth={2}
-                />
-              </Svg>
-            }
-          />
-          <QuickAction
-            label="Create PO"
-            color={colors.purple}
-            onPress={() => router.push('/po/new')}
-            icon={
-              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                <Path
-                  d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z"
-                  stroke={colors.purple}
-                  strokeWidth={2}
-                  strokeLinejoin="round"
-                />
-                <Path
-                  d="M14 2v6h6"
-                  stroke={colors.purple}
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                />
-              </Svg>
-            }
-          />
-          <QuickAction
-            label="Vendors"
-            color={colors.blue}
-            onPress={() => router.push('/vendors')}
-            icon={
-              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                <Path
-                  d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"
-                  stroke={colors.blue}
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <Path
-                  d="M9 11a4 4 0 100-8 4 4 0 000 8z"
-                  stroke={colors.blue}
-                  strokeWidth={2}
-                />
-                <Path
-                  d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"
-                  stroke={colors.blue}
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                />
-              </Svg>
-            }
-          />
-          <QuickAction
-            label="Reports"
-            color={colors.purpleLight}
-            onPress={() => router.push('/reports')}
-            icon={
-              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                <Path
-                  d="M18 20V10M12 20V4M6 20v-6"
-                  stroke={colors.purpleLight}
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </Svg>
-            }
+            sub="PO value"
           />
         </ScrollView>
 
-        {/* ── Modules ──────────────────────────────────────────────── */}
-        <SectionLabel title="MODULES" />
-        <View style={styles.moduleGrid}>
-          {modules.map((mod) => (
-            <ModuleCard key={mod.name} {...mod} width={CARD_WIDTH} />
-          ))}
+        {/* Quick Actions */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.quickActionsRow}
+        >
+          <QuickAction label="Scan" color={colors.teal} onPress={() => router.push('/(tabs)/scan')}
+            icon={<Svg width={18} height={18} viewBox="0 0 24 24" fill="none"><Path d="M7 3H3v4M17 3h4v4M7 21H3v-4M17 21h4v-4" stroke={colors.teal} strokeWidth={2} strokeLinecap="round" /></Svg>}
+          />
+          <QuickAction label="New PO" color={colors.amber} onPress={() => router.push('/po/new')}
+            icon={<Svg width={18} height={18} viewBox="0 0 24 24" fill="none"><Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 2v6h6" stroke={colors.amber} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></Svg>}
+          />
+          <QuickAction label="Vendors" color={colors.blue} onPress={() => router.push('/vendors')}
+            icon={<Svg width={18} height={18} viewBox="0 0 24 24" fill="none"><Path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z" stroke={colors.blue} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></Svg>}
+          />
+          <QuickAction label="Reports" color={colors.purpleLight} onPress={() => router.push('/reports')}
+            icon={<Svg width={18} height={18} viewBox="0 0 24 24" fill="none"><Path d="M18 20V10M12 20V4M6 20v-6" stroke={colors.purpleLight} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></Svg>}
+          />
+        </ScrollView>
+
+        {/* Monthly PO Value Trend */}
+        <SectionLabel title="PO VALUE TREND — 6 MONTHS" />
+        <View style={styles.chartCard}>
+          <LineChart
+            data={lineData}
+            width={CHART_WIDTH - 32}
+            height={160}
+            chartConfig={chartConfig}
+            bezier
+            withInnerLines
+            withOuterLines={false}
+            style={{ marginLeft: -16 }}
+            formatYLabel={(v) => formatINR(Number(v))}
+          />
         </View>
 
-        {/* ── Alerts ───────────────────────────────────────────────── */}
-        <SectionLabel title="PROACTIVE ALERTS" />
-        <View style={styles.alertsList}>
-          <AlertItem dotColor={colors.red}>
-            {'Cotton kurta stock '}
-            <Text style={{ fontWeight: '700', color: colors.red }}>18 days</Text>
-            {' at Ameerpet'}
-          </AlertItem>
-          <AlertItem dotColor={colors.amber}>
-            {'Vendor B: similar at '}
-            <Text style={{ fontWeight: '700', color: colors.amber }}>₹380</Text>
-            {' vs ₹450'}
-          </AlertItem>
-          <AlertItem dotColor={colors.purpleLight}>
-            <Text style={{ fontWeight: '700', color: colors.purpleLight }}>
-              5 customers
-            </Text>
-            {' need blue Banarasi saree'}
-          </AlertItem>
-          <AlertItem dotColor={colors.teal}>
-            {'PO #247 '}
-            <Text style={{ fontWeight: '700', color: colors.teal }}>delivered</Text>
-            {' — start GRN'}
-          </AlertItem>
+        {/* GRN Acceptance Rate by Vendor */}
+        <SectionLabel title="GRN ACCEPTANCE RATE BY VENDOR" />
+        <View style={styles.chartCard}>
+          {quality.length > 0 ? (
+            <BarChart
+              data={barData}
+              width={CHART_WIDTH - 32}
+              height={160}
+              chartConfig={barChartConfig}
+              yAxisLabel=""
+              yAxisSuffix="%"
+              withInnerLines
+              style={{ marginLeft: -16 }}
+              showValuesOnTopOfBars
+              fromZero
+            />
+          ) : (
+            <View style={styles.emptyChart}>
+              <Text style={styles.emptyChartText}>No GRN data yet</Text>
+            </View>
+          )}
         </View>
+
+        {/* Recent Activity */}
+        <SectionLabel title="RECENT ACTIVITY" />
+        <View style={styles.activityCard}>
+          {(data?.recentActivity ?? []).length > 0
+            ? (data?.recentActivity ?? []).map((a, i) => (
+                <ActivityItem key={i} type={a.type} description={a.description} timestamp={a.timestamp} />
+              ))
+            : <Text style={styles.emptyChartText}>No activity yet</Text>
+          }
+        </View>
+
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
+  root: { flex: 1, backgroundColor: 'transparent' },
+  content: { paddingBottom: 60 },
+
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
   },
-  scrollView: {
-    flex: 1,
-    backgroundColor: colors.background,
+  greeting: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', fontFamily: 'Inter_800ExtraBold' },
+  greetingSub: { fontSize: 12, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular', marginTop: 2 },
+  reportBtn: { padding: 8 },
+
+  statsRow: { paddingHorizontal: 20, gap: 10, paddingBottom: 4 },
+  statCard: {
+    width: 110,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    alignItems: 'center',
+    gap: 4,
   },
-  content: {
-    paddingBottom: 40,
+  statValue: { fontSize: 26, fontWeight: '900', fontFamily: 'Inter_900Black' },
+  statLabel: { fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular' },
+  statSub: { fontSize: 10, fontFamily: 'Inter_400Regular' },
+
+  quickActionsRow: { paddingHorizontal: 20, gap: 10, paddingVertical: 12 },
+  quickAction: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 10, paddingHorizontal: 14,
+    borderWidth: 1, borderRadius: 8,
+  },
+  quickActionLabel: { fontSize: 13, fontWeight: '700', fontFamily: 'Inter_700Bold' },
+
+  sectionLabel: {
+    fontSize: 11, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.25)', paddingHorizontal: 20,
+    marginTop: 20, marginBottom: 10, fontFamily: 'Inter_700Bold',
   },
 
-  // Hero
-  hero: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 16,
+  chartCard: {
+    marginHorizontal: 20,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 14,
+    padding: 16,
     overflow: 'hidden',
   },
-  glowTeal: {
-    position: 'absolute',
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    backgroundColor: colors.teal,
-    opacity: 0.14,
-    right: -60,
-    top: -60,
-  },
-  glowPurple: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: colors.purple,
-    opacity: 0.08,
-    left: -30,
-    top: 20,
-  },
-  heroEyebrow: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 2.5,
-    color: 'rgba(255,255,255,0.25)',
-    textTransform: 'uppercase',
-    marginBottom: 10,
-    fontFamily: 'Inter_700Bold',
-  },
-  heroTitle: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: colors.textPrimary,
-    fontFamily: 'Inter_900Black',
-    lineHeight: 36,
-  },
-  heroSubtitle: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.3)',
-    marginTop: 8,
-    fontFamily: 'Inter_400Regular',
-  },
+  emptyChart: { height: 80, justifyContent: 'center', alignItems: 'center' },
+  emptyChartText: { color: 'rgba(255,255,255,0.25)', fontFamily: 'Inter_400Regular', fontSize: 13 },
 
-  // GRN pending banner
-  grnBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  activityCard: {
     marginHorizontal: 20,
-    marginBottom: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(55,138,221,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(55,138,221,0.25)',
-    borderRadius: 12,
-  },
-  grnBannerText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#378ADD',
-    fontFamily: 'Inter_700Bold',
-  },
-
-  // Critical alert banner
-  criticalBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginHorizontal: 20,
-    marginBottom: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(226,75,74,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(226,75,74,0.25)',
-    borderRadius: 12,
-  },
-  criticalDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#E24B4A',
-  },
-  criticalBannerText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#E24B4A',
-    fontFamily: 'Inter_700Bold',
-  },
-
-  // Stats
-  statsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 20,
-    marginBottom: 16,
-  },
-  statCard: {
-    flex: 1,
-    minWidth: 90,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
     borderRadius: 14,
-    padding: 16,
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 28,
-    fontWeight: '900',
-    fontFamily: 'Inter_900Black',
-  },
-  statLabel: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.3)',
-    fontWeight: '500',
-    fontFamily: 'Inter_500Medium',
-    marginBottom: 6,
-    marginTop: 2,
-  },
-
-  // Quick Actions
-  quickActionsScroll: {
-    marginBottom: 4,
-  },
-  quickActionsContent: {
-    paddingHorizontal: 20,
+    padding: 12,
     gap: 10,
-    flexDirection: 'row',
   },
-  quickAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderRadius: 8,
-  },
-  quickActionLabel: {
-    fontSize: 14,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-  },
-
-  // Section Label
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 2.5,
-    textTransform: 'uppercase',
-    color: 'rgba(255,255,255,0.25)',
-    paddingHorizontal: 20,
-    marginTop: 24,
-    marginBottom: 10,
-    fontFamily: 'Inter_700Bold',
-  },
-
-  // Module Grid
-  moduleGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    paddingHorizontal: 20,
-  },
-
-  // Alerts
-  alertsList: {
-    paddingHorizontal: 20,
-    gap: 10,
-    paddingBottom: 100,
-  },
-  alertItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 16,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 14,
-  },
-  alertDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  alertText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: 'rgba(255,255,255,0.5)',
-    flex: 1,
-    fontFamily: 'Inter_400Regular',
-  },
+  activityItem: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  activityDot: { width: 7, height: 7, borderRadius: 4 },
+  activityDesc: { flex: 1, fontSize: 13, color: 'rgba(255,255,255,0.6)', fontFamily: 'Inter_400Regular' },
+  activityTime: { fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: 'Inter_400Regular' },
 });
