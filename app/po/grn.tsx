@@ -11,7 +11,7 @@ import { colors } from '../../constants/theme';
 import {
   getGRNByPO, createGRN, updateGRNItem, finalizeGRN, addGRNPhoto, getPOById,
 } from '../../db/database';
-import type { GRNRecord, GRNItem, PurchaseOrder } from '../../db/types';
+import type { GRNRecord, GRNItem, GRNSizeData, PurchaseOrder } from '../../db/types';
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -22,13 +22,6 @@ function hexToRgba(hex: string, alpha: number): string {
 
 type ItemStatus = GRNItem['status'];
 
-function getItemStatus(item: GRNItem): ItemStatus {
-  if (item.received_qty === 0) return 'pending';
-  if (item.rejected_qty > 0) return 'rejected';
-  if (item.received_qty < item.ordered_qty) return 'short';
-  return 'accepted';
-}
-
 const ITEM_STATUS_CFG: Record<ItemStatus, { label: string; color: string }> = {
   pending:  { label: 'Pending',  color: 'rgba(255,255,255,0.3)' },
   accepted: { label: '✓ Full',   color: '#5DCAA5' },
@@ -36,13 +29,41 @@ const ITEM_STATUS_CFG: Record<ItemStatus, { label: string; color: string }> = {
   rejected: { label: 'QC Fail',  color: '#E24B4A' },
 };
 
-// Local editable state for each item
+// Local editable state per GRN item
 type LocalItem = {
-  receivedStr: string;
-  acceptedStr: string;
+  sizeReceived: Record<string, string>; // sizeLabel → received qty string
+  acceptedStr: string;                  // total accepted (defaults to total received)
   notes: string;
   rejectionReason: string;
 };
+
+function initLocalItem(item: GRNItem): LocalItem {
+  const sizeReceived: Record<string, string> = {};
+  if (item.size_data) {
+    for (const [lbl, entry] of Object.entries(item.size_data)) {
+      sizeReceived[lbl] = entry.received > 0 ? String(entry.received) : '';
+    }
+  }
+  const totalReceived = Object.values(sizeReceived).reduce(
+    (s, v) => s + (parseInt(v || '0', 10) || 0), 0,
+  );
+  return {
+    sizeReceived,
+    acceptedStr: item.accepted_qty > 0 ? String(item.accepted_qty) : (totalReceived > 0 ? String(totalReceived) : ''),
+    notes: item.notes ?? '',
+    rejectionReason: item.rejection_reason ?? '',
+  };
+}
+
+function calcItemTotals(local: LocalItem, orderedQty: number) {
+  const totalReceived = Object.values(local.sizeReceived).reduce(
+    (s, v) => s + (parseInt(v || '0', 10) || 0), 0,
+  );
+  const accepted = parseInt(local.acceptedStr || '0', 10) || 0;
+  const rejected = Math.max(0, totalReceived - accepted);
+  const pending = Math.max(0, orderedQty - totalReceived);
+  return { totalReceived, accepted, rejected, pending };
+}
 
 export default function GRNScreen() {
   const router = useRouter();
@@ -60,32 +81,48 @@ export default function GRNScreen() {
 
     let grnData = await getGRNByPO(poId);
     if (!grnData) {
-      const grnId = await createGRN(poId);
+      await createGRN(poId);
       grnData = await getGRNByPO(poId);
       if (!grnData) return;
     }
     setGrn(grnData);
 
-    // Initialize local state from DB (first load only — preserve user edits after that)
     setLocalData((prev) => {
       const next: Record<string, LocalItem> = {};
       for (const item of grnData!.items ?? []) {
-        if (prev[item.id]) {
-          next[item.id] = prev[item.id]; // preserve edits
-        } else {
-          next[item.id] = {
-            receivedStr: item.received_qty > 0 ? String(item.received_qty) : '',
-            acceptedStr: item.accepted_qty > 0 ? String(item.accepted_qty) : '',
-            notes: item.notes ?? '',
-            rejectionReason: item.rejection_reason ?? '',
-          };
-        }
+        next[item.id] = prev[item.id] ?? initLocalItem(item);
       }
       return next;
     });
   }, [poId]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  // Update a specific size received qty, auto-update acceptedStr if it was tracking
+  const updateSizeReceived = (itemId: string, sizeLabel: string, rawVal: string, item: GRNItem) => {
+    const cleaned = rawVal.replace(/[^0-9]/g, '');
+    setLocalData((prev) => {
+      const current = prev[itemId];
+      if (!current) return prev;
+
+      const oldTotal = Object.values(current.sizeReceived).reduce(
+        (s, v) => s + (parseInt(v || '0', 10) || 0), 0,
+      );
+      const newSizeReceived = { ...current.sizeReceived, [sizeLabel]: cleaned };
+      const newTotal = Object.values(newSizeReceived).reduce(
+        (s, v) => s + (parseInt(v || '0', 10) || 0), 0,
+      );
+
+      // Auto-update accepted if it was equal to (or tracking) old total
+      const currentAccepted = parseInt(current.acceptedStr || '0', 10) || 0;
+      const newAccepted = currentAccepted >= oldTotal ? newTotal : currentAccepted;
+
+      return {
+        ...prev,
+        [itemId]: { ...current, sizeReceived: newSizeReceived, acceptedStr: String(newAccepted) },
+      };
+    });
+  };
 
   const updateLocal = (itemId: string, patch: Partial<LocalItem>) => {
     setLocalData((prev) => ({ ...prev, [itemId]: { ...prev[itemId], ...patch } }));
@@ -94,15 +131,27 @@ export default function GRNScreen() {
   const persistItem = async (item: GRNItem) => {
     const local = localData[item.id];
     if (!local) return;
-    const received = parseInt(local.receivedStr || '0', 10) || 0;
-    const accepted = parseInt(local.acceptedStr || '0', 10) || 0;
-    const rejected = Math.max(0, received - accepted);
-    const status = received === 0 ? 'pending'
+
+    // Build size_data from local sizeReceived
+    const sizeData: GRNSizeData = {};
+    if (item.size_data) {
+      for (const [lbl, entry] of Object.entries(item.size_data)) {
+        sizeData[lbl] = {
+          ordered: entry.ordered,
+          received: parseInt(local.sizeReceived[lbl] || '0', 10) || 0,
+        };
+      }
+    }
+
+    const { totalReceived, accepted, rejected, pending } = calcItemTotals(local, item.ordered_qty);
+    const status: ItemStatus = totalReceived === 0 ? 'pending'
       : rejected > 0 ? 'rejected'
-      : received < item.ordered_qty ? 'short'
+      : pending > 0 ? 'short'
       : 'accepted';
+
     await updateGRNItem(item.id, {
-      received_qty: received,
+      size_data: Object.keys(sizeData).length > 0 ? sizeData : undefined,
+      received_qty: totalReceived,
       accepted_qty: accepted,
       rejected_qty: rejected,
       notes: local.notes || undefined,
@@ -120,7 +169,6 @@ export default function GRNScreen() {
         return;
       }
     }
-
     Alert.alert('GRN Photo', 'Capture received goods', [
       {
         text: 'Camera',
@@ -148,10 +196,37 @@ export default function GRNScreen() {
 
   const handleFinalize = async () => {
     if (!grn) return;
+
     // Persist all items first
     for (const item of grn.items ?? []) {
       await persistItem(item);
     }
+
+    // Warn if pending quantities remain
+    const items = grn.items ?? [];
+    const totalPending = items.reduce((s, item) => {
+      const local = localData[item.id];
+      if (!local) return s;
+      const { pending } = calcItemTotals(local, item.ordered_qty);
+      return s + pending;
+    }, 0);
+
+    if (totalPending > 0) {
+      await new Promise<void>((resolve, reject) => {
+        Alert.alert(
+          'Pending Items Remain',
+          `${totalPending} pcs are still pending receipt. Finalize as partial GRN?`,
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => reject(new Error('cancelled')) },
+            { text: 'Finalize Partial', style: 'destructive', onPress: () => resolve() },
+          ],
+        );
+      }).catch(() => { return; });
+      // If user cancelled, bail
+      const recheck = await getGRNByPO(poId!);
+      if (!recheck) return;
+    }
+
     setFinalizing(true);
     try {
       await finalizeGRN(grn.id);
@@ -159,7 +234,7 @@ export default function GRNScreen() {
       setGrn(updated);
       const accepted = updated?.total_accepted_qty ?? 0;
       const ordered = updated?.total_ordered_qty ?? 0;
-      Alert.alert('GRN Finalized', `${accepted}/${ordered} items accepted`, [
+      Alert.alert('GRN Finalized', `${accepted}/${ordered} pcs accepted`, [
         { text: 'OK', onPress: () => router.back() },
       ]);
     } catch (e) {
@@ -180,26 +255,54 @@ export default function GRNScreen() {
   }
 
   const items = grn.items ?? [];
-  const totalOrdered = items.reduce((s, i) => s + i.ordered_qty, 0);
+  const isFinalized = grn.overall_status !== 'pending';
 
-  // Live totals from local state
-  const liveReceived = items.reduce((s, i) => s + (parseInt(localData[i.id]?.receivedStr || '0', 10) || 0), 0);
-  const liveAccepted = items.reduce((s, i) => s + (parseInt(localData[i.id]?.acceptedStr || '0', 10) || 0), 0);
+  // Live totals across all items
+  const totalOrdered = items.reduce((s, i) => s + i.ordered_qty, 0);
+  const liveReceived = items.reduce((s, i) => {
+    const local = localData[i.id];
+    if (!local) return s;
+    return s + Object.values(local.sizeReceived).reduce((ss, v) => ss + (parseInt(v || '0', 10) || 0), 0);
+  }, 0);
+  const liveAccepted = items.reduce((s, i) => {
+    const local = localData[i.id];
+    return s + (parseInt(local?.acceptedStr || '0', 10) || 0);
+  }, 0);
   const liveRejected = items.reduce((s, i) => {
-    const r = parseInt(localData[i.id]?.receivedStr || '0', 10) || 0;
-    const a = parseInt(localData[i.id]?.acceptedStr || '0', 10) || 0;
+    const local = localData[i.id];
+    if (!local) return s;
+    const r = Object.values(local.sizeReceived).reduce((ss, v) => ss + (parseInt(v || '0', 10) || 0), 0);
+    const a = parseInt(local.acceptedStr || '0', 10) || 0;
     return s + Math.max(0, r - a);
   }, 0);
-  const acceptRate = liveReceived > 0 ? Math.round((liveAccepted / liveReceived) * 100) : 0;
+  const livePending = Math.max(0, totalOrdered - liveReceived);
   const progressPct = totalOrdered > 0 ? Math.min(100, Math.round((liveReceived / totalOrdered) * 100)) : 0;
-
+  const acceptRate = liveReceived > 0 ? Math.round((liveAccepted / liveReceived) * 100) : 0;
   const acceptRateColor = acceptRate >= 90 ? colors.teal : acceptRate >= 70 ? colors.amber : colors.red;
-  const isFinalized = grn.overall_status !== 'pending';
+
+  // Summary groups
+  const fullyReceived = items.filter((i) => {
+    const local = localData[i.id];
+    if (!local) return false;
+    const { pending } = calcItemTotals(local, i.ordered_qty);
+    return pending === 0;
+  });
+  const partialItems = items.filter((i) => {
+    const local = localData[i.id];
+    if (!local) return false;
+    const r = Object.values(local.sizeReceived).reduce((s, v) => s + (parseInt(v || '0', 10) || 0), 0);
+    const { pending } = calcItemTotals(local, i.ordered_qty);
+    return r > 0 && pending > 0;
+  });
+  const notReceived = items.filter((i) => {
+    const local = localData[i.id];
+    if (!local) return true;
+    const r = Object.values(local.sizeReceived).reduce((s, v) => s + (parseInt(v || '0', 10) || 0), 0);
+    return r === 0;
+  });
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-
-      {/* Sticky summary footer lives outside ScrollView */}
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
 
         {/* Header */}
@@ -233,22 +336,26 @@ export default function GRNScreen() {
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${progressPct}%` as `${number}%` }]} />
           </View>
-          <Text style={styles.progressPct}>{progressPct}% received</Text>
+          <View style={styles.progressFooter}>
+            <Text style={styles.progressPct}>{progressPct}% received</Text>
+            {livePending > 0 && (
+              <Text style={styles.pendingPill}>{livePending} pending</Text>
+            )}
+          </View>
         </View>
 
         {/* Item list */}
         {items.map((item) => {
-          const local = localData[item.id] ?? { receivedStr: '', acceptedStr: '', notes: '', rejectionReason: '' };
-          const received = parseInt(local.receivedStr || '0', 10) || 0;
-          const accepted = parseInt(local.acceptedStr || '0', 10) || 0;
-          const rejected = Math.max(0, received - accepted);
-          const derivedStatus = received === 0 ? 'pending'
-            : rejected > 0 ? 'rejected'
-            : received < item.ordered_qty ? 'short'
+          const local = localData[item.id] ?? { sizeReceived: {}, acceptedStr: '', notes: '', rejectionReason: '' };
+          const { totalReceived: itemReceived, accepted: itemAccepted, rejected: itemRejected, pending: itemPending } = calcItemTotals(local, item.ordered_qty);
+          const derivedStatus: ItemStatus = itemReceived === 0 ? 'pending'
+            : itemRejected > 0 ? 'rejected'
+            : itemPending > 0 ? 'short'
             : 'accepted';
           const statusCfg = ITEM_STATUS_CFG[derivedStatus];
-          const hasPhoto = (item.photos ?? []).length > 0;
+          const hasSizeData = item.size_data && Object.keys(item.size_data).length > 0;
           const latestPhoto = item.photos?.[item.photos.length - 1];
+          const hasPhoto = (item.photos ?? []).length > 0;
 
           return (
             <View key={item.id} style={styles.itemCard}>
@@ -265,64 +372,92 @@ export default function GRNScreen() {
                   </Text>
                   <Text style={styles.itemSub}>{item.garment_type ?? ''}</Text>
                 </View>
-                <View style={styles.itemRight}>
-                  <View style={[styles.orderedBadge, { backgroundColor: hexToRgba(colors.amber, 0.12) }]}>
-                    <Text style={[styles.orderedBadgeText, { color: colors.amber }]}>
-                      Ordered: {item.ordered_qty}
-                    </Text>
-                  </View>
-                  <View style={[styles.statusPill, { backgroundColor: hexToRgba(statusCfg.color, 0.12) }]}>
-                    <Text style={[styles.statusPillText, { color: statusCfg.color }]}>{statusCfg.label}</Text>
-                  </View>
+                <View style={[styles.statusPill, { backgroundColor: hexToRgba(statusCfg.color, 0.12) }]}>
+                  <Text style={[styles.statusPillText, { color: statusCfg.color }]}>{statusCfg.label}</Text>
                 </View>
               </View>
 
-              {/* Qty inputs */}
-              <View style={styles.qtyRow}>
-                <View style={styles.qtyField}>
-                  <Text style={styles.qtyLabel}>Received</Text>
-                  <TextInput
-                    style={styles.qtyInput}
-                    value={local.receivedStr}
-                    onChangeText={(v) => {
-                      const cleaned = v.replace(/[^0-9]/g, '');
-                      updateLocal(item.id, { receivedStr: cleaned });
-                    }}
-                    onBlur={() => persistItem(item)}
-                    keyboardType="numeric"
-                    placeholder="0"
-                    placeholderTextColor="rgba(255,255,255,0.2)"
-                    editable={!isFinalized}
-                  />
-                </View>
-                <View style={styles.qtyField}>
-                  <Text style={styles.qtyLabel}>Accepted</Text>
-                  <TextInput
-                    style={styles.qtyInput}
-                    value={local.acceptedStr}
-                    onChangeText={(v) => {
-                      const cleaned = v.replace(/[^0-9]/g, '');
-                      updateLocal(item.id, { acceptedStr: cleaned });
-                    }}
-                    onBlur={() => persistItem(item)}
-                    keyboardType="numeric"
-                    placeholder="0"
-                    placeholderTextColor="rgba(255,255,255,0.2)"
-                    editable={!isFinalized}
-                  />
-                </View>
-                <View style={styles.qtyField}>
-                  <Text style={styles.qtyLabel}>Rejected</Text>
-                  <View style={[styles.rejectedDisplay, rejected > 0 && styles.rejectedDisplayRed]}>
-                    <Text style={[styles.rejectedText, rejected > 0 && styles.rejectedTextRed]}>
-                      {rejected}
+              {/* Size table */}
+              {hasSizeData ? (
+                <View style={styles.sizeTable}>
+                  {/* Table header */}
+                  <View style={styles.sizeRow}>
+                    <Text style={[styles.sizeCell, styles.sizeCellHeader]}>SIZE</Text>
+                    <Text style={[styles.ordCell, styles.sizeCellHeader]}>ORD</Text>
+                    <Text style={[styles.rcvCell, styles.sizeCellHeader]}>RCVD</Text>
+                    <Text style={[styles.pendCell, styles.sizeCellHeader]}>PEND</Text>
+                  </View>
+
+                  {/* Data rows */}
+                  {Object.entries(item.size_data!).map(([lbl, entry]) => {
+                    const rcvd = parseInt(local.sizeReceived[lbl] || '0', 10) || 0;
+                    const pend = entry.ordered - rcvd;
+                    const pendColor = pend < 0 ? colors.red : pend > 0 ? colors.amber : colors.teal;
+                    const pendLabel = pend === 0 ? '✓' : pend < 0 ? `+${Math.abs(pend)}!` : String(pend);
+                    return (
+                      <View key={lbl} style={styles.sizeRow}>
+                        <Text style={[styles.sizeCell, styles.sizeLabelText]}>{lbl}</Text>
+                        <Text style={[styles.ordCell, styles.ordText]}>{entry.ordered}</Text>
+                        <TextInput
+                          style={styles.rcvInput}
+                          value={local.sizeReceived[lbl] ?? ''}
+                          onChangeText={(v) => updateSizeReceived(item.id, lbl, v, item)}
+                          onBlur={() => persistItem(item)}
+                          keyboardType="numeric"
+                          placeholder="0"
+                          placeholderTextColor="rgba(255,255,255,0.15)"
+                          editable={!isFinalized}
+                          selectTextOnFocus
+                        />
+                        <View style={styles.pendCell}>
+                          <Text style={[styles.pendText, { color: pendColor }]}>{pendLabel}</Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+
+                  {/* Total row */}
+                  <View style={[styles.sizeRow, styles.sizeRowTotal]}>
+                    <Text style={[styles.sizeCell, styles.totalLabelText]}>Total</Text>
+                    <Text style={[styles.ordCell, styles.totalValueText]}>{item.ordered_qty}</Text>
+                    <Text style={[styles.rcvCell, styles.totalValueText]}>{itemReceived}</Text>
+                    <Text style={[styles.pendCell, styles.totalValueText, { color: itemPending > 0 ? colors.amber : colors.teal }]}>
+                      {itemPending}
                     </Text>
                   </View>
                 </View>
+              ) : (
+                /* Fallback for items without size data */
+                <View style={styles.noSizeFallback}>
+                  <Text style={styles.noSizeLabel}>Ordered: {item.ordered_qty} pcs · Received: {itemReceived}</Text>
+                </View>
+              )}
+
+              {/* Accepted + Rejected row */}
+              <View style={styles.acceptRow}>
+                <View style={styles.acceptField}>
+                  <Text style={styles.acceptLabel}>Accepted</Text>
+                  <TextInput
+                    style={styles.acceptInput}
+                    value={local.acceptedStr}
+                    onChangeText={(v) => updateLocal(item.id, { acceptedStr: v.replace(/[^0-9]/g, '') })}
+                    onBlur={() => persistItem(item)}
+                    keyboardType="numeric"
+                    placeholder={String(itemReceived)}
+                    placeholderTextColor="rgba(255,255,255,0.2)"
+                    editable={!isFinalized}
+                    selectTextOnFocus
+                  />
+                </View>
+                {itemRejected > 0 && (
+                  <View style={styles.rejectedBadge}>
+                    <Text style={styles.rejectedBadgeText}>{itemRejected} rejected</Text>
+                  </View>
+                )}
               </View>
 
               {/* Rejection reason */}
-              {rejected > 0 && !isFinalized && (
+              {itemRejected > 0 && !isFinalized && (
                 <TextInput
                   style={styles.rejectionInput}
                   value={local.rejectionReason}
@@ -332,7 +467,7 @@ export default function GRNScreen() {
                   placeholderTextColor="rgba(255,255,255,0.2)"
                 />
               )}
-              {rejected > 0 && local.rejectionReason !== '' && (
+              {itemRejected > 0 && local.rejectionReason !== '' && (
                 <Text style={styles.rejectionReasonDisplay}>↳ {local.rejectionReason}</Text>
               )}
 
@@ -348,9 +483,7 @@ export default function GRNScreen() {
                         stroke={colors.blue} strokeWidth={1.8} strokeLinejoin="round" />
                       <Path d="M12 17a4 4 0 100-8 4 4 0 000 8z" stroke={colors.blue} strokeWidth={1.8} />
                     </Svg>
-                    <Text style={styles.takePhotoBtnText}>
-                      {hasPhoto ? 'Add photo' : 'Take photo'}
-                    </Text>
+                    <Text style={styles.takePhotoBtnText}>{hasPhoto ? 'Add photo' : 'Take photo'}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -370,9 +503,10 @@ export default function GRNScreen() {
           );
         })}
 
-        {/* Summary */}
-        <View style={[styles.summaryCard]}>
+        {/* Summary card */}
+        <View style={styles.summaryCard}>
           <Text style={styles.sectionLabel}>SUMMARY</Text>
+
           <View style={styles.summaryGrid}>
             <SummaryStat label="Ordered" value={totalOrdered} color="rgba(255,255,255,0.5)" />
             <SummaryStat label="Received" value={liveReceived} color={colors.blue} />
@@ -380,16 +514,47 @@ export default function GRNScreen() {
             {liveRejected > 0 && (
               <SummaryStat label="Rejected" value={liveRejected} color={colors.red} />
             )}
+            {livePending > 0 && (
+              <SummaryStat label="Pending" value={livePending} color={colors.amber} />
+            )}
           </View>
+
           {liveReceived > 0 && (
             <View style={styles.acceptRateRow}>
               <Text style={styles.acceptRateLabel}>Accept Rate</Text>
               <Text style={[styles.acceptRateValue, { color: acceptRateColor }]}>{acceptRate}%</Text>
             </View>
           )}
+
+          {/* Receipt groups */}
+          {(fullyReceived.length > 0 || partialItems.length > 0 || notReceived.length > 0) && (
+            <View style={styles.groupsRow}>
+              {fullyReceived.length > 0 && (
+                <View style={[styles.groupBadge, { backgroundColor: hexToRgba(colors.teal, 0.1) }]}>
+                  <Text style={[styles.groupBadgeText, { color: colors.teal }]}>
+                    {fullyReceived.length} full
+                  </Text>
+                </View>
+              )}
+              {partialItems.length > 0 && (
+                <View style={[styles.groupBadge, { backgroundColor: hexToRgba(colors.amber, 0.1) }]}>
+                  <Text style={[styles.groupBadgeText, { color: colors.amber }]}>
+                    {partialItems.length} partial
+                  </Text>
+                </View>
+              )}
+              {notReceived.length > 0 && (
+                <View style={[styles.groupBadge, { backgroundColor: 'rgba(255,255,255,0.06)' }]}>
+                  <Text style={[styles.groupBadgeText, { color: 'rgba(255,255,255,0.4)' }]}>
+                    {notReceived.length} pending
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
         </View>
 
-        {/* Finalize button */}
+        {/* Finalize / Finalized */}
         {!isFinalized ? (
           <TouchableOpacity
             style={[styles.finalizeBtn, finalizing && styles.finalizeBtnDisabled]}
@@ -455,14 +620,11 @@ const styles = StyleSheet.create({
   progressRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   progressLabel: { fontSize: 12, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular' },
   progressValue: { fontSize: 12, fontWeight: '700', color: colors.blue, fontFamily: 'Inter_700Bold' },
-  progressTrack: {
-    height: 6,
-    backgroundColor: 'rgba(55,138,221,0.1)',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
+  progressTrack: { height: 6, backgroundColor: 'rgba(55,138,221,0.1)', borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: 6, backgroundColor: colors.blue, borderRadius: 3 },
-  progressPct: { fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: 'Inter_400Regular', marginTop: 6, textAlign: 'right' },
+  progressFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
+  progressPct: { fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: 'Inter_400Regular' },
+  pendingPill: { fontSize: 11, fontWeight: '700', color: colors.amber, fontFamily: 'Inter_700Bold' },
 
   itemCard: {
     marginHorizontal: 20,
@@ -474,48 +636,97 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 10,
   },
-  itemHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  itemThumb: { width: 44, height: 44, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
-  itemInitial: { fontSize: 18, fontWeight: '900', fontFamily: 'Inter_900Black' },
+  itemHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  itemThumb: { width: 40, height: 40, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
+  itemInitial: { fontSize: 16, fontWeight: '900', fontFamily: 'Inter_900Black' },
   itemHeaderBody: { flex: 1 },
   itemName: { fontSize: 14, fontWeight: '700', color: '#FFFFFF', fontFamily: 'Inter_700Bold' },
   itemSub: { fontSize: 11, color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_400Regular', marginTop: 2 },
-  itemRight: { alignItems: 'flex-end', gap: 4 },
-  orderedBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  orderedBadgeText: { fontSize: 11, fontWeight: '700', fontFamily: 'Inter_700Bold' },
   statusPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   statusPillText: { fontSize: 11, fontWeight: '700', fontFamily: 'Inter_700Bold' },
 
-  qtyRow: { flexDirection: 'row', gap: 10 },
-  qtyField: { flex: 1, alignItems: 'center', gap: 4 },
-  qtyLabel: { fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular' },
-  qtyInput: {
-    width: '100%',
-    height: 44,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+  // Size table
+  sizeTable: {
+    backgroundColor: 'rgba(255,255,255,0.02)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 8,
-    fontSize: 18,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  sizeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  sizeRowTotal: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderBottomWidth: 0,
+  },
+  sizeCell: { width: 32, marginRight: 4 },
+  ordCell: { flex: 1, textAlign: 'center' },
+  rcvCell: { width: 56, textAlign: 'center' },
+  pendCell: { width: 44, alignItems: 'flex-end' },
+  sizeCellHeader: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+    color: 'rgba(255,255,255,0.3)',
+    fontFamily: 'Inter_700Bold',
+    textTransform: 'uppercase',
+  },
+  sizeLabelText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF', fontFamily: 'Inter_700Bold' },
+  ordText: { fontSize: 13, color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_400Regular', textAlign: 'center' },
+  rcvInput: {
+    width: 56,
+    height: 34,
+    backgroundColor: 'rgba(55,138,221,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(55,138,221,0.2)',
+    borderRadius: 7,
+    fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
     fontFamily: 'Inter_700Bold',
     textAlign: 'center',
     padding: 0,
   },
-  rejectedDisplay: {
-    width: '100%',
-    height: 44,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+  pendText: { fontSize: 13, fontWeight: '700', fontFamily: 'Inter_700Bold', textAlign: 'right' },
+  totalLabelText: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_700Bold' },
+  totalValueText: { fontSize: 13, fontWeight: '800', fontFamily: 'Inter_800ExtraBold', textAlign: 'center' },
+
+  noSizeFallback: { paddingVertical: 4 },
+  noSizeLabel: { fontSize: 13, color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_400Regular' },
+
+  // Accepted / Rejected row
+  acceptRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  acceptField: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  acceptLabel: { fontSize: 12, color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_400Regular' },
+  acceptInput: {
+    width: 70,
+    height: 36,
+    backgroundColor: 'rgba(93,202,165,0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(93,202,165,0.2)',
     borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.teal,
+    fontFamily: 'Inter_700Bold',
+    textAlign: 'center',
+    padding: 0,
   },
-  rejectedDisplayRed: { backgroundColor: 'rgba(226,75,74,0.08)', borderColor: 'rgba(226,75,74,0.25)' },
-  rejectedText: { fontSize: 18, fontWeight: '700', color: 'rgba(255,255,255,0.25)', fontFamily: 'Inter_700Bold' },
-  rejectedTextRed: { color: colors.red },
+  rejectedBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(226,75,74,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(226,75,74,0.25)',
+    borderRadius: 6,
+  },
+  rejectedBadgeText: { fontSize: 12, fontWeight: '700', color: colors.red, fontFamily: 'Inter_700Bold' },
 
   rejectionInput: {
     backgroundColor: 'rgba(226,75,74,0.06)',
@@ -536,7 +747,7 @@ const styles = StyleSheet.create({
   },
 
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  photoThumb: { width: 60, height: 60, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.04)' },
+  photoThumb: { width: 56, height: 56, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.04)' },
   takePhotoBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -576,18 +787,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 2.5,
-    textTransform: 'uppercase',
     color: 'rgba(255,255,255,0.25)',
     fontFamily: 'Inter_700Bold',
     marginBottom: 12,
   },
-  summaryGrid: { flexDirection: 'row', gap: 20, marginBottom: 10 },
+  summaryGrid: { flexDirection: 'row', gap: 20, flexWrap: 'wrap', marginBottom: 10 },
   summaryStat: { alignItems: 'center', gap: 2 },
   summaryStatValue: { fontSize: 22, fontWeight: '800', fontFamily: 'Inter_800ExtraBold' },
   summaryStatLabel: { fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular' },
-  acceptRateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  acceptRateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   acceptRateLabel: { fontSize: 13, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular' },
   acceptRateValue: { fontSize: 18, fontWeight: '800', fontFamily: 'Inter_800ExtraBold' },
+  groupsRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  groupBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  groupBadgeText: { fontSize: 12, fontWeight: '700', fontFamily: 'Inter_700Bold' },
 
   finalizeBtn: {
     marginHorizontal: 20,
