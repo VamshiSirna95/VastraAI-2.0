@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import Svg, { Path } from 'react-native-svg';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import Svg, { Path, Circle } from 'react-native-svg';
 import { colors } from '../../constants/theme';
-import { getPOById, updatePO } from '../../db/database';
-import type { PurchaseOrder, POItem } from '../../db/types';
+import {
+  getPOById, updatePO, getLRByPO, getGRNByPO, createGRN,
+} from '../../db/database';
+import type { PurchaseOrder, POItem, LorryReceipt, GRNRecord } from '../../db/types';
 import { DeliveryCard } from '../../components/DeliveryCard';
 import { calculateDelivery, type DeliverySchedule } from '../../services/delivery';
 
@@ -25,47 +27,54 @@ function formatINR(val: number): string {
 type POStatus = PurchaseOrder['status'];
 
 const STATUS_CONFIG: Record<POStatus, { label: string; color: string }> = {
-  draft:      { label: 'Draft',      color: '#EF9F27' },
-  sent:       { label: 'Sent',       color: '#378ADD' },
-  confirmed:  { label: 'Confirmed',  color: '#7F77DD' },
-  dispatched: { label: 'Dispatched', color: '#AFA9EC' },
-  received:   { label: 'Received',   color: '#5DCAA5' },
-  closed:     { label: 'Closed',     color: 'rgba(255,255,255,0.3)' },
+  draft:      { label: 'Draft',      color: 'rgba(255,255,255,0.4)' },
+  confirmed:  { label: 'Confirmed',  color: '#EF9F27' },
+  sent:       { label: 'Sent',       color: '#EF9F27' },
+  dispatched: { label: 'Dispatched', color: '#378ADD' },
+  received:   { label: 'Received',   color: '#378ADD' },
+  closed:     { label: 'Closed',     color: '#5DCAA5' },
 };
 
+// Correct lifecycle order per spec
 const STATUS_TRANSITIONS: Partial<Record<POStatus, POStatus>> = {
-  draft: 'sent',
-  sent: 'confirmed',
-  confirmed: 'dispatched',
+  draft:      'confirmed',
+  confirmed:  'sent',
+  sent:       'dispatched',
   dispatched: 'received',
-  received: 'closed',
+  received:   'closed',
+};
+
+const NEXT_LABEL: Partial<Record<POStatus, string>> = {
+  draft:      'Confirm PO',
+  confirmed:  'Mark as Sent',
+  sent:       'Mark as Dispatched',
+  dispatched: 'Mark as Received',
+  received:   'Mark as Closed',
 };
 
 export default function PODetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [po, setPo] = useState<PurchaseOrder | null>(null);
+  const [lr, setLr] = useState<LorryReceipt | null>(null);
+  const [grn, setGrn] = useState<GRNRecord | null>(null);
   const [deliverySchedule, setDeliverySchedule] = useState<DeliverySchedule | null>(null);
 
-  useEffect(() => {
-    if (id) load();
+  const load = useCallback(async () => {
+    if (!id) return;
+    const [data, lrData, grnData, sched] = await Promise.all([
+      getPOById(id),
+      getLRByPO(id),
+      getGRNByPO(id),
+      calculateDelivery(0, 1),
+    ]);
+    setPo(data);
+    setLr(lrData);
+    setGrn(grnData);
+    setDeliverySchedule(sched);
   }, [id]);
 
-  const load = async () => {
-    const data = await getPOById(id);
-    setPo(data);
-    // Compute delivery urgency based on default stock levels
-    const s = await calculateDelivery(0, 1);
-    setDeliverySchedule(s);
-  };
-
-  const handleAdvanceStatus = async () => {
-    if (!po) return;
-    const next = STATUS_TRANSITIONS[po.status];
-    if (!next) return;
-    await updatePO(po.id, { status: next });
-    await load();
-  };
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   if (!po) {
     return (
@@ -81,6 +90,67 @@ export default function PODetailScreen() {
   const isEditable = po.status === 'draft';
   const nextStatus = STATUS_TRANSITIONS[po.status];
   const nextCfg = nextStatus ? STATUS_CONFIG[nextStatus] : null;
+  const nextLabel = NEXT_LABEL[po.status];
+
+  // ── Gate checks ──────────────────────────────────────────────────────────────
+  const hasArticlesWithQtyAndPrice = (po.items ?? []).some(
+    (i) => i.total_qty > 0 && i.unit_price > 0
+  );
+
+  type GateResult = { allowed: boolean; reason?: string; actionLabel?: string; actionPath?: string };
+
+  function getGate(): GateResult {
+    switch (po!.status) {
+      case 'draft':
+        return hasArticlesWithQtyAndPrice
+          ? { allowed: true }
+          : { allowed: false, reason: 'Add at least one article with qty and price' };
+      case 'sent':
+        return lr
+          ? { allowed: true }
+          : { allowed: false, reason: 'Upload Lorry Receipt first', actionLabel: 'Upload LR →', actionPath: `/po/lr-upload?poId=${id}` };
+      case 'received':
+        return grn && grn.overall_status !== 'pending'
+          ? { allowed: true }
+          : { allowed: false, reason: 'Complete GRN verification first', actionLabel: grn ? 'Open GRN →' : 'Start GRN →', actionPath: `/po/grn?poId=${id}` };
+      default:
+        return { allowed: true };
+    }
+  }
+
+  const gate = getGate();
+
+  const handleAdvanceStatus = async () => {
+    if (!po || !nextStatus) return;
+    if (!gate.allowed) {
+      Alert.alert('Cannot advance', gate.reason ?? 'Gate condition not met');
+      return;
+    }
+
+    if (po.status === 'draft') {
+      Alert.alert('Confirm PO', `Lock PO ${po.po_number}? It cannot be edited after confirmation.`, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Confirm', onPress: async () => {
+            await updatePO(po.id, { status: 'confirmed' });
+            await load();
+          },
+        },
+      ]);
+      return;
+    }
+
+    if (po.status === 'dispatched') {
+      // Auto-create GRN on transition to Received
+      await updatePO(po.id, { status: 'received' });
+      if (!grn) await createGRN(po.id);
+      await load();
+      return;
+    }
+
+    await updatePO(po.id, { status: nextStatus });
+    await load();
+  };
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -107,8 +177,6 @@ export default function PODetailScreen() {
           <InfoRow label="Vendor" value={po.vendor_name ?? po.vendor_id} />
           <InfoRow label="Created" value={new Date(po.created_at).toLocaleDateString('en-IN')} />
           {po.delivery_date && <InfoRow label="Delivery Date" value={po.delivery_date} />}
-          {po.dispatch_date && <InfoRow label="Dispatch Date" value={po.dispatch_date} />}
-          {po.store_arrival_date && <InfoRow label="Store Arrival" value={po.store_arrival_date} />}
           {po.notes ? (
             <View style={styles.notesBox}>
               <Text style={styles.notesText}>{po.notes}</Text>
@@ -123,7 +191,82 @@ export default function PODetailScreen() {
           </View>
         )}
 
-        {/* Items */}
+        {/* Lorry Receipt section */}
+        <View style={[styles.glassCard, styles.blueCard]}>
+          <View style={styles.sectionRow}>
+            <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+              <Path d="M1 3h15v13H1zM16 8h4l3 3v5h-7V8z" stroke={colors.blue} strokeWidth={1.8} strokeLinejoin="round" />
+              <Circle cx={5.5} cy={18.5} r={2.5} stroke={colors.blue} strokeWidth={1.8} />
+              <Circle cx={18.5} cy={18.5} r={2.5} stroke={colors.blue} strokeWidth={1.8} />
+            </Svg>
+            <Text style={[styles.sectionLabel, { color: colors.blue, marginBottom: 0 }]}>LORRY RECEIPT</Text>
+          </View>
+          {lr ? (
+            <View style={styles.lrDetails}>
+              {lr.lr_number ? <InfoRow label="LR Number" value={lr.lr_number} /> : null}
+              {lr.transporter_name ? <InfoRow label="Transporter" value={lr.transporter_name} /> : null}
+              {lr.dispatch_date ? <InfoRow label="Dispatched" value={lr.dispatch_date} /> : null}
+              {lr.expected_delivery_date ? <InfoRow label="Expected Delivery" value={lr.expected_delivery_date} /> : null}
+              <View style={[styles.lrStatusBadge, { backgroundColor: hexToRgba(colors.blue, 0.12) }]}>
+                <Text style={[styles.lrStatusText, { color: colors.blue }]}>{lr.status.replace('_', ' ').toUpperCase()}</Text>
+              </View>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.uploadLrBtn}
+              onPress={() => router.push(`/po/lr-upload?poId=${id}`)}
+            >
+              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                <Path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke={colors.blue} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+              <Text style={styles.uploadLrText}>Upload Lorry Receipt</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* GRN section — only show once dispatched or beyond */}
+        {(po.status === 'dispatched' || po.status === 'received' || po.status === 'closed') && (
+          <View style={[styles.glassCard, styles.blueCard]}>
+            <View style={styles.sectionRow}>
+              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                <Path d="M9 11l3 3L22 4" stroke={colors.blue} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                <Path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" stroke={colors.blue} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+              <Text style={[styles.sectionLabel, { color: colors.blue, marginBottom: 0 }]}>GOODS RECEIPT (GRN)</Text>
+            </View>
+            {grn ? (
+              <View style={styles.grnDetails}>
+                <InfoRow label="GRN Number" value={grn.grn_number} />
+                <InfoRow label="Received Date" value={grn.received_date} />
+                <View style={styles.grnStats}>
+                  <GRNStat label="Ordered" value={String(grn.total_ordered_qty)} color="rgba(255,255,255,0.5)" />
+                  <GRNStat label="Received" value={String(grn.total_received_qty)} color={colors.blue} />
+                  <GRNStat label="Accepted" value={String(grn.total_accepted_qty)} color={colors.teal} />
+                  {grn.total_rejected_qty > 0 && (
+                    <GRNStat label="Rejected" value={String(grn.total_rejected_qty)} color={colors.red} />
+                  )}
+                </View>
+                <TouchableOpacity
+                  style={styles.openGrnBtn}
+                  onPress={() => router.push(`/po/grn?poId=${id}`)}
+                >
+                  <Text style={styles.openGrnText}>
+                    {grn.overall_status === 'pending' ? 'Continue GRN →' : 'View GRN →'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.uploadLrBtn}
+                onPress={() => router.push(`/po/grn?poId=${id}`)}
+              >
+                <Text style={[styles.uploadLrText, { color: colors.blue }]}>Start GRN Verification</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {/* Articles */}
         <View style={styles.glassCard}>
           <View style={styles.sectionRow}>
             <Text style={styles.sectionLabel}>ARTICLES</Text>
@@ -166,7 +309,7 @@ export default function PODetailScreen() {
         </View>
 
         {/* Actions */}
-        <View style={styles.actionBtns}>
+        <View style={styles.actionSection}>
           {isEditable && (
             <TouchableOpacity
               style={styles.editBtn}
@@ -175,17 +318,38 @@ export default function PODetailScreen() {
               <Text style={styles.editBtnText}>Edit PO</Text>
             </TouchableOpacity>
           )}
-          {nextCfg && nextStatus && (
-            <TouchableOpacity
-              style={[styles.advanceBtn, { backgroundColor: hexToRgba(nextCfg.color, 0.15), borderColor: hexToRgba(nextCfg.color, 0.3) }]}
-              onPress={handleAdvanceStatus}
-            >
-              <Text style={[styles.advanceBtnText, { color: nextCfg.color }]}>
-                Mark as {nextCfg.label}
-              </Text>
-            </TouchableOpacity>
+
+          {nextCfg && nextLabel && (
+            <View style={styles.advanceWrapper}>
+              <TouchableOpacity
+                style={[
+                  styles.advanceBtn,
+                  gate.allowed
+                    ? { backgroundColor: hexToRgba(nextCfg.color, 0.15), borderColor: hexToRgba(nextCfg.color, 0.3) }
+                    : styles.advanceBtnDisabled,
+                ]}
+                onPress={handleAdvanceStatus}
+                activeOpacity={gate.allowed ? 0.75 : 0.95}
+              >
+                <Text style={[styles.advanceBtnText, { color: gate.allowed ? nextCfg.color : 'rgba(255,255,255,0.25)' }]}>
+                  {nextLabel}
+                </Text>
+              </TouchableOpacity>
+
+              {!gate.allowed && (
+                <View style={styles.gateMessage}>
+                  <Text style={styles.gateReason}>{gate.reason}</Text>
+                  {gate.actionLabel && gate.actionPath && (
+                    <TouchableOpacity onPress={() => router.push(gate.actionPath as never)}>
+                      <Text style={styles.gateAction}>{gate.actionLabel}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </View>
           )}
         </View>
+
       </ScrollView>
     </SafeAreaView>
   );
@@ -196,6 +360,15 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <View style={styles.infoRow}>
       <Text style={styles.infoLabel}>{label}</Text>
       <Text style={styles.infoValue}>{value}</Text>
+    </View>
+  );
+}
+
+function GRNStat({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <View style={styles.grnStat}>
+      <Text style={[styles.grnStatValue, { color }]}>{value}</Text>
+      <Text style={styles.grnStatLabel}>{label}</Text>
     </View>
   );
 }
@@ -222,16 +395,8 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontFamily: 'Inter_800ExtraBold',
   },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-  },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  statusText: { fontSize: 11, fontWeight: '700', fontFamily: 'Inter_700Bold' },
 
   glassCard: {
     marginHorizontal: 20,
@@ -246,10 +411,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(93,202,165,0.04)',
     borderColor: 'rgba(93,202,165,0.12)',
   },
-  deliverySection: {
-    marginHorizontal: 20,
-    marginBottom: 16,
+  blueCard: {
+    backgroundColor: 'rgba(55,138,221,0.04)',
+    borderColor: 'rgba(55,138,221,0.12)',
   },
+  deliverySection: { marginHorizontal: 20, marginBottom: 16 },
 
   sectionLabel: {
     fontSize: 11,
@@ -260,53 +426,45 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     marginBottom: 12,
   },
-  sectionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
+  sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   countBadge: {
     backgroundColor: 'rgba(93,202,165,0.15)',
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
-  countText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.teal,
-    fontFamily: 'Inter_700Bold',
-  },
+  countText: { fontSize: 12, fontWeight: '700', color: colors.teal, fontFamily: 'Inter_700Bold' },
 
-  infoRow: {
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  infoLabel: { fontSize: 13, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular' },
+  infoValue: { fontSize: 13, fontWeight: '600', color: '#FFFFFF', fontFamily: 'Inter_500Medium' },
+  notesBox: { marginTop: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: 10 },
+  notesText: { fontSize: 13, color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_400Regular' },
+
+  lrDetails: { gap: 2 },
+  lrStatusBadge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginTop: 6 },
+  lrStatusText: { fontSize: 10, fontWeight: '700', fontFamily: 'Inter_700Bold' },
+  uploadLrBtn: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(55,138,221,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(55,138,221,0.2)',
+    borderRadius: 10,
+    alignSelf: 'flex-start',
   },
-  infoLabel: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.35)',
-    fontFamily: 'Inter_400Regular',
-  },
-  infoValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    fontFamily: 'Inter_500Medium',
-  },
-  notesBox: {
-    marginTop: 8,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 8,
-    padding: 10,
-  },
-  notesText: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.5)',
-    fontFamily: 'Inter_400Regular',
-  },
+  uploadLrText: { fontSize: 13, fontWeight: '700', color: colors.blue, fontFamily: 'Inter_700Bold' },
+
+  grnDetails: { gap: 4 },
+  grnStats: { flexDirection: 'row', gap: 16, marginTop: 8, marginBottom: 8 },
+  grnStat: { alignItems: 'center', gap: 2 },
+  grnStatValue: { fontSize: 20, fontWeight: '800', fontFamily: 'Inter_800ExtraBold' },
+  grnStatLabel: { fontSize: 10, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular' },
+  openGrnBtn: { paddingVertical: 8, marginTop: 4 },
+  openGrnText: { fontSize: 13, fontWeight: '700', color: colors.blue, fontFamily: 'Inter_700Bold' },
 
   itemRow: {
     flexDirection: 'row',
@@ -317,90 +475,52 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.04)',
   },
-  itemThumb: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  itemInitial: {
-    fontSize: 16,
-    fontWeight: '900',
-    fontFamily: 'Inter_900Black',
-  },
+  itemThumb: { width: 40, height: 40, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
+  itemInitial: { fontSize: 16, fontWeight: '900', fontFamily: 'Inter_900Black' },
   itemBody: { flex: 1 },
-  itemName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    fontFamily: 'Inter_700Bold',
-  },
-  itemSub: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.4)',
-    fontFamily: 'Inter_400Regular',
-  },
-  itemQty: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.5)',
-    fontFamily: 'Inter_400Regular',
-    marginTop: 2,
-  },
-  itemTotal: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: colors.teal,
-    fontFamily: 'Inter_800ExtraBold',
-  },
+  itemName: { fontSize: 14, fontWeight: '700', color: '#FFFFFF', fontFamily: 'Inter_700Bold' },
+  itemSub: { fontSize: 11, color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_400Regular' },
+  itemQty: { fontSize: 12, color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_400Regular', marginTop: 2 },
+  itemTotal: { fontSize: 14, fontWeight: '800', color: colors.teal, fontFamily: 'Inter_800ExtraBold' },
 
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  summaryLabel: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.35)',
-    fontFamily: 'Inter_400Regular',
-  },
-  summaryValue: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    fontFamily: 'Inter_700Bold',
-  },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  summaryLabel: { fontSize: 13, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular' },
+  summaryValue: { fontSize: 13, fontWeight: '700', color: '#FFFFFF', fontFamily: 'Inter_700Bold' },
 
-  actionBtns: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 20,
-    marginTop: 4,
-  },
+  actionSection: { paddingHorizontal: 20, gap: 10, marginTop: 4 },
   editBtn: {
-    flex: 1,
     paddingVertical: 14,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
   },
-  editBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.7)',
-    fontFamily: 'Inter_700Bold',
-  },
+  editBtnText: { fontSize: 15, fontWeight: '700', color: 'rgba(255,255,255,0.7)', fontFamily: 'Inter_700Bold' },
+  advanceWrapper: { gap: 8 },
   advanceBtn: {
-    flex: 1,
     paddingVertical: 14,
     borderRadius: 12,
     borderWidth: 1,
     alignItems: 'center',
   },
-  advanceBtnText: {
-    fontSize: 15,
+  advanceBtnDisabled: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  advanceBtnText: { fontSize: 15, fontWeight: '700', fontFamily: 'Inter_700Bold' },
+  gateMessage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 4,
+  },
+  gateReason: { fontSize: 12, color: colors.red, fontFamily: 'Inter_400Regular' },
+  gateAction: {
+    fontSize: 12,
     fontWeight: '700',
+    color: colors.red,
     fontFamily: 'Inter_700Bold',
+    textDecorationLine: 'underline',
   },
 });
