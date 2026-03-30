@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 
 interface GlassInputProps extends TextInputProps {
-  label?: string;
+  label?: string | React.ReactNode;
 }
 
 export default function GlassInput({ label, style, ...props }: GlassInputProps) {
@@ -16,7 +16,12 @@ export default function GlassInput({ label, style, ...props }: GlassInputProps) 
 
   return (
     <View style={styles.wrapper}>
-      {label ? <Text style={styles.label}>{label}</Text> : null}
+      {label != null
+        ? typeof label === 'string'
+          ? <Text style={styles.label}>{label}</Text>
+          : <View style={styles.labelRow}>{label}</View>
+        : null
+      }
       <TextInput
         style={[
           styles.input,
@@ -41,6 +46,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: 'rgba(255,255,255,0.3)',
     fontFamily: 'Inter_700Bold',
+    marginBottom: 6,
+  },
+  labelRow: {
     marginBottom: 6,
   },
   input: {

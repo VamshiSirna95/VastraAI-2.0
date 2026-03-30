@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,10 +10,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions, type CameraView as CameraViewType } from 'expo-camera';
+import * as FileSystem from 'expo-file-system';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import { hexToRgba } from '../../components/ModuleCard';
+import { createProduct } from '../../db/database';
+import { addProductPhoto } from '../../db/database';
+import { detectAttributes, type AIDetectionResult } from '../../services/ai';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -94,10 +98,9 @@ function BatchIcon({ color }: { color: string }) {
 type CornerPos = 'tl' | 'tr' | 'bl' | 'br';
 
 function CornerBracket({ pos }: { pos: CornerPos }) {
-  const isTop    = pos === 'tl' || pos === 'tr';
-  const isLeft   = pos === 'tl' || pos === 'bl';
-  const offset   = -(CORNER_W / 2);
-
+  const isTop  = pos === 'tl' || pos === 'tr';
+  const isLeft = pos === 'tl' || pos === 'bl';
+  const offset = -(CORNER_W / 2);
   return (
     <View
       style={{
@@ -141,6 +144,39 @@ function DetectionFloat({ pulseAnim }: { pulseAnim: Animated.Value }) {
   );
 }
 
+// ── Analyzing overlay ─────────────────────────────────────────────────────────
+
+function AnalyzingOverlay({
+  pulseAnim,
+  detectedAttrs,
+}: {
+  pulseAnim: Animated.Value;
+  detectedAttrs: string[];
+}) {
+  return (
+    <View style={styles.analyzingOverlay}>
+      <View style={styles.analyzingCard}>
+        <View style={styles.analyzingHeader}>
+          <Animated.View style={[styles.analyzingDot, { opacity: pulseAnim }]} />
+          <Text style={styles.analyzingTitle}>Analyzing garment…</Text>
+        </View>
+        {detectedAttrs.length > 0 && (
+          <View style={styles.detectedPillsRow}>
+            {detectedAttrs.map((attr, i) => (
+              <View
+                key={i}
+                style={[styles.detectedPill, { backgroundColor: hexToRgba(colors.teal, 0.15) }]}
+              >
+                <Text style={styles.detectedPillText}>{attr}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
 // ── Permission denied view ────────────────────────────────────────────────────
 
 function PermissionView({ onRequest }: { onRequest: () => void }) {
@@ -160,38 +196,124 @@ function PermissionView({ onRequest }: { onRequest: () => void }) {
 export default function ScanScreen() {
   const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
-  const [activeMode, setActiveMode] = React.useState<Mode>('Tag');
+  const [activeMode, setActiveMode] = useState<Mode>('Tag');
+  const [analyzing, setAnalyzing] = useState(false);
+  const [detectedAttrs, setDetectedAttrs] = useState<string[]>([]);
 
+  const cameraRef = useRef<CameraViewType>(null);
   const pulseAnim = useRef(new Animated.Value(0.3)).current;
+  const analyzePulse = useRef(new Animated.Value(0.3)).current;
 
+  // Viewfinder pulse loop
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 900,
-          useNativeDriver: true,
-          easing: Easing.inOut(Easing.ease),
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 0.3,
-          duration: 900,
-          useNativeDriver: true,
-          easing: Easing.inOut(Easing.ease),
-        }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+        Animated.timing(pulseAnim, { toValue: 0.3, duration: 900, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
       ])
     );
     loop.start();
     return () => loop.stop();
   }, [pulseAnim]);
 
+  // Analyzing overlay pulse
+  useEffect(() => {
+    if (!analyzing) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(analyzePulse, { toValue: 1, duration: 600, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+        Animated.timing(analyzePulse, { toValue: 0.2, duration: 600, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [analyzing, analyzePulse]);
+
   const hasCamera = permission?.granted ?? false;
+
+  const handleShutter = async () => {
+    if (analyzing) return;
+
+    // No camera: navigate directly to new product form
+    if (!hasCamera || !cameraRef.current) {
+      router.push('/product/new');
+      return;
+    }
+
+    try {
+      setAnalyzing(true);
+      setDetectedAttrs([]);
+
+      // 1. Take picture
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
+      if (!photo) throw new Error('No photo');
+
+      // 2. Ensure products directory exists
+      const dir = `${FileSystem.documentDirectory}products/`;
+      const dirInfo = await FileSystem.getInfoAsync(dir);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      }
+
+      // 3. Create draft product
+      const productId = await createProduct({ status: 'draft' });
+
+      // 4. Save photo to app directory
+      const destUri = `${dir}${productId}_main.jpg`;
+      await FileSystem.copyAsync({ from: photo.uri, to: destUri });
+
+      // 5. Attach photo to product
+      await addProductPhoto(productId, destUri, 'main', true);
+
+      // 6. Run AI detection cascade
+      const result: AIDetectionResult = await detectAttributes(destUri);
+
+      // Show detected attributes as pills
+      const attrs: string[] = [];
+      if (result.garment_type) attrs.push(result.garment_type);
+      if (result.primary_color) attrs.push(result.primary_color);
+      if (result.pattern) attrs.push(result.pattern);
+      if (result.fabric) attrs.push(result.fabric);
+      setDetectedAttrs(attrs);
+
+      // Brief pause so user can see detected attrs
+      await new Promise((res) => setTimeout(res, 800));
+
+      setAnalyzing(false);
+
+      // 7. Navigate to product form with AI results as params
+      router.push({
+        pathname: `/product/${productId}` as `/product/${string}`,
+        params: {
+          ai_garment_type: result.garment_type ?? '',
+          ai_primary_color: result.primary_color ?? '',
+          ai_secondary_color: result.secondary_color ?? '',
+          ai_pattern: result.pattern ?? '',
+          ai_fabric: result.fabric ?? '',
+          ai_work_type: result.work_type ?? '',
+          ai_occasion: result.occasion ?? '',
+          ai_sleeve: result.sleeve ?? '',
+          ai_neck: result.neck ?? '',
+          ai_confidence: String(result.confidence),
+          ai_source: result.source,
+        },
+      });
+    } catch {
+      setAnalyzing(false);
+      // Fall back to manual new product
+      router.push('/product/new');
+    }
+  };
 
   return (
     <View style={styles.root}>
       {/* Background: camera or dark gradient fallback */}
       {hasCamera ? (
-        <CameraView style={StyleSheet.absoluteFill} facing="back" />
+        <CameraView
+          ref={cameraRef}
+          style={StyleSheet.absoluteFill}
+          facing="back"
+        />
       ) : (
         <>
           <View style={[StyleSheet.absoluteFill, { backgroundColor: '#12121e' }]} />
@@ -209,10 +331,7 @@ export default function ScanScreen() {
               <TouchableOpacity
                 key={mode}
                 onPress={() => setActiveMode(mode)}
-                style={[
-                  styles.modePill,
-                  active && styles.modePillActive,
-                ]}
+                style={[styles.modePill, active && styles.modePillActive]}
               >
                 <Text style={[styles.modePillText, active && styles.modePillTextActive]}>
                   {mode}
@@ -224,24 +343,16 @@ export default function ScanScreen() {
 
         {/* ── Detection area ─────────────────────────────────────────── */}
         <View style={styles.detectionArea}>
-
-          {/* Frame + buttons row */}
           <View style={styles.frameRow}>
-
-            {/* Detection frame */}
             <View style={styles.detectionFrame}>
               <CornerBracket pos="tl" />
               <CornerBracket pos="tr" />
               <CornerBracket pos="bl" />
               <CornerBracket pos="br" />
-
-              {/* AI detection float inside frame bottom */}
               <View style={styles.detectionFloatWrapper}>
                 <DetectionFloat pulseAnim={pulseAnim} />
               </View>
             </View>
-
-            {/* Side buttons */}
             <View style={styles.sideButtons}>
               <TouchableOpacity style={styles.sideBtn}>
                 <FlashIcon color="rgba(255,255,255,0.7)" />
@@ -250,30 +361,26 @@ export default function ScanScreen() {
                 <MicIcon color="rgba(255,255,255,0.7)" />
               </TouchableOpacity>
             </View>
-
           </View>
 
-          {/* Stability hint */}
           <View style={styles.stabilityHint}>
             <Text style={styles.stabilityText}>
               {hasCamera ? 'Hold steady — garment detected' : 'Camera access needed'}
             </Text>
           </View>
-
         </View>
 
         {/* ── Bottom control bar ─────────────────────────────────────── */}
         <View style={styles.bottomBar}>
-
           <TouchableOpacity style={styles.bottomSideBtn}>
             <GalleryIcon color="rgba(255,255,255,0.4)" />
             <Text style={styles.bottomBtnLabel}>Gallery</Text>
           </TouchableOpacity>
 
-          {/* Shutter */}
           <TouchableOpacity
-            style={styles.shutterOuter}
-            onPress={() => router.push('/product/new')}
+            style={[styles.shutterOuter, analyzing && styles.shutterDisabled]}
+            onPress={handleShutter}
+            disabled={analyzing}
           >
             <View style={styles.shutterInner} />
           </TouchableOpacity>
@@ -285,12 +392,15 @@ export default function ScanScreen() {
             <BatchIcon color="rgba(255,255,255,0.4)" />
             <Text style={styles.bottomBtnLabel}>Batch</Text>
           </TouchableOpacity>
-
         </View>
-
       </SafeAreaView>
 
-      {/* Camera permission overlay (if denied) */}
+      {/* Analyzing overlay */}
+      {analyzing && (
+        <AnalyzingOverlay pulseAnim={analyzePulse} detectedAttrs={detectedAttrs} />
+      )}
+
+      {/* Camera permission overlay */}
       {permission && !permission.granted && (
         <View style={styles.permOverlay}>
           <PermissionView onRequest={requestPermission} />
@@ -311,8 +421,6 @@ const styles = StyleSheet.create({
     top: '50%',
     backgroundColor: '#080810',
   },
-
-  // Overlay
   overlay: {
     flex: 1,
   },
@@ -351,14 +459,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 14,
   },
-
-  // Frame row (frame + side buttons)
   frameRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-
   detectionFrame: {
     width: FRAME_W,
     height: FRAME_H,
@@ -366,7 +471,6 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(93,202,165,0.45)',
     borderRadius: 14,
   },
-
   detectionFloatWrapper: {
     position: 'absolute',
     bottom: 10,
@@ -375,9 +479,7 @@ const styles = StyleSheet.create({
   },
 
   // Side buttons
-  sideButtons: {
-    gap: 10,
-  },
+  sideButtons: { gap: 10 },
   sideBtn: {
     width: 40,
     height: 40,
@@ -476,11 +578,66 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  shutterDisabled: {
+    opacity: 0.4,
+  },
   shutterInner: {
     width: 60,
     height: 60,
     borderRadius: 30,
     backgroundColor: '#FFFFFF',
+  },
+
+  // Analyzing overlay
+  analyzingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  analyzingCard: {
+    backgroundColor: 'rgba(8,8,16,0.95)',
+    borderWidth: 1,
+    borderColor: 'rgba(93,202,165,0.2)',
+    borderRadius: 16,
+    padding: 24,
+    minWidth: 220,
+    alignItems: 'center',
+    gap: 14,
+  },
+  analyzingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  analyzingDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.teal,
+  },
+  analyzingTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: 'Inter_700Bold',
+  },
+  detectedPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    justifyContent: 'center',
+  },
+  detectedPill: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  detectedPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.teal,
+    fontFamily: 'Inter_500Medium',
   },
 
   // Permission overlay

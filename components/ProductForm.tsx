@@ -10,7 +10,7 @@ import {
   Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import Svg, { Path, Line } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import { colors } from '../constants/theme';
 import {
   createProduct,
@@ -40,9 +40,44 @@ interface CustomAttr {
   value: string;
 }
 
+export interface AIFields {
+  garment_type?: string;
+  primary_color?: string;
+  secondary_color?: string;
+  pattern?: string;
+  fabric?: string;
+  work_type?: string;
+  occasion?: string;
+  sleeve?: string;
+  neck?: string;
+}
+
 interface ProductFormProps {
   initial?: Partial<Product>;
   productId?: string;
+  aiConfidence?: number;
+  aiFields?: AIFields;
+}
+
+// ── AI badge ──────────────────────────────────────────────────────────────────
+
+function AiBadge({ confidence }: { confidence: number }) {
+  return (
+    <View style={styles.aiBadgeInline}>
+      <Text style={styles.aiBadgeText}>AI {confidence}%</Text>
+    </View>
+  );
+}
+
+// ── Label with optional AI badge ─────────────────────────────────────────────
+
+function FieldLabel({ label, showAi, confidence }: { label: string; showAi?: boolean; confidence?: number }) {
+  return (
+    <View style={styles.fieldLabelRow}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      {showAi && confidence != null && <AiBadge confidence={confidence} />}
+    </View>
+  );
 }
 
 // ── Section wrapper ───────────────────────────────────────────────────────────
@@ -72,7 +107,8 @@ function MarginBadge({ pp, sp }: { pp: string; sp: string }) {
 
 // ── Main form ─────────────────────────────────────────────────────────────────
 
-export default function ProductForm({ initial, productId }: ProductFormProps) {
+export default function ProductForm({ initial, productId, aiConfidence, aiFields }: ProductFormProps) {
+  const aiPct = aiConfidence != null ? Math.round(aiConfidence) : undefined;
   const router = useRouter();
   const isEdit = Boolean(productId);
 
@@ -231,7 +267,7 @@ export default function ProductForm({ initial, productId }: ProductFormProps) {
             placeholder="Scan or type barcode"
           />
           <GlassPicker
-            label="Garment type"
+            label={<FieldLabel label="Garment type" showAi={!!aiFields?.garment_type} confidence={aiPct} />}
             value={garmentType}
             options={GARMENT_TYPES}
             placeholder="Select garment type"
@@ -275,7 +311,7 @@ export default function ProductForm({ initial, productId }: ProductFormProps) {
         {/* ── Section 4: Attributes ─── */}
         <Section title="Attributes">
           <GlassPicker
-            label="Primary Color"
+            label={<FieldLabel label="Primary Color" showAi={!!aiFields?.primary_color} confidence={aiPct} />}
             value={primaryColor}
             options={COLORS}
             placeholder="Select color"
@@ -289,28 +325,28 @@ export default function ProductForm({ initial, productId }: ProductFormProps) {
             onChange={setSecondaryColor}
           />
           <GlassPicker
-            label="Pattern"
+            label={<FieldLabel label="Pattern" showAi={!!aiFields?.pattern} confidence={aiPct} />}
             value={pattern}
             options={PATTERNS}
             placeholder="Select pattern"
             onChange={setPattern}
           />
           <GlassPicker
-            label="Fabric"
+            label={<FieldLabel label="Fabric" showAi={!!aiFields?.fabric} confidence={aiPct} />}
             value={fabric}
             options={FABRICS}
             placeholder="Select fabric"
             onChange={setFabric}
           />
           <GlassPicker
-            label="Work Type"
+            label={<FieldLabel label="Work Type" showAi={!!aiFields?.work_type} confidence={aiPct} />}
             value={workType}
             options={WORK_TYPES}
             placeholder="Select work type"
             onChange={setWorkType}
           />
           <GlassPicker
-            label="Occasion"
+            label={<FieldLabel label="Occasion" showAi={!!aiFields?.occasion} confidence={aiPct} />}
             value={occasion}
             options={OCCASIONS}
             placeholder="Select occasion"
@@ -323,8 +359,8 @@ export default function ProductForm({ initial, productId }: ProductFormProps) {
             placeholder="Select season"
             onChange={setSeason}
           />
-          <GlassInput label="Sleeve" value={sleeve} onChangeText={setSleeve} placeholder="e.g. 3/4 sleeve" />
-          <GlassInput label="Neck" value={neck} onChangeText={setNeck} placeholder="e.g. Round" />
+          <GlassInput label={<FieldLabel label="Sleeve" showAi={!!aiFields?.sleeve} confidence={aiPct} />} value={sleeve} onChangeText={setSleeve} placeholder="e.g. 3/4 sleeve" />
+          <GlassInput label={<FieldLabel label="Neck" showAi={!!aiFields?.neck} confidence={aiPct} />} value={neck} onChangeText={setNeck} placeholder="e.g. Round" />
           <GlassInput label="Fit" value={fit} onChangeText={setFit} placeholder="e.g. Regular" />
           <GlassInput label="Length" value={length} onChangeText={setLength} placeholder="e.g. Knee length" />
         </Section>
@@ -489,6 +525,30 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.25)',
     fontFamily: 'Inter_700Bold',
     marginBottom: 14,
+  },
+
+  fieldLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.3)',
+    fontFamily: 'Inter_700Bold',
+  },
+  aiBadgeInline: {
+    backgroundColor: 'rgba(93,202,165,0.1)',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  aiBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#5DCAA5',
+    fontFamily: 'Inter_700Bold',
   },
 
   marginBadge: {

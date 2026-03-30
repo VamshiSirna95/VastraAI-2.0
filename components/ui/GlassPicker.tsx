@@ -11,7 +11,7 @@ import {
 import Svg, { Path, Polyline } from 'react-native-svg';
 
 interface GlassPickerProps {
-  label?: string;
+  label?: string | React.ReactNode;
   value?: string;
   options: readonly string[];
   placeholder?: string;
@@ -29,7 +29,12 @@ export default function GlassPicker({
 
   return (
     <View style={styles.wrapper}>
-      {label ? <Text style={styles.label}>{label}</Text> : null}
+      {label != null
+        ? typeof label === 'string'
+          ? <Text style={styles.label}>{label}</Text>
+          : <View style={styles.labelRow}>{label}</View>
+        : null
+      }
       <TouchableOpacity style={styles.trigger} onPress={() => setOpen(true)}>
         <Text style={value ? styles.triggerValue : styles.triggerPlaceholder}>
           {value ?? placeholder}
@@ -94,6 +99,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: 'rgba(255,255,255,0.3)',
     fontFamily: 'Inter_700Bold',
+    marginBottom: 6,
+  },
+  labelRow: {
     marginBottom: 6,
   },
   trigger: {

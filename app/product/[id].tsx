@@ -7,16 +7,84 @@ import { getProductById } from '../../db/database';
 import type { Product } from '../../db/types';
 import ProductForm from '../../components/ProductForm';
 
+interface AIParams {
+  garment_type?: string;
+  primary_color?: string;
+  secondary_color?: string;
+  pattern?: string;
+  fabric?: string;
+  work_type?: string;
+  occasion?: string;
+  sleeve?: string;
+  neck?: string;
+  confidence?: number;
+  source?: string;
+}
+
 export default function EditProductScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    ai_garment_type?: string;
+    ai_primary_color?: string;
+    ai_secondary_color?: string;
+    ai_pattern?: string;
+    ai_fabric?: string;
+    ai_work_type?: string;
+    ai_occasion?: string;
+    ai_sleeve?: string;
+    ai_neck?: string;
+    ai_confidence?: string;
+    ai_source?: string;
+  }>();
+
+  const { id } = params;
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Extract AI detection params
+  const aiParams: AIParams = {
+    garment_type: params.ai_garment_type || undefined,
+    primary_color: params.ai_primary_color || undefined,
+    secondary_color: params.ai_secondary_color || undefined,
+    pattern: params.ai_pattern || undefined,
+    fabric: params.ai_fabric || undefined,
+    work_type: params.ai_work_type || undefined,
+    occasion: params.ai_occasion || undefined,
+    sleeve: params.ai_sleeve || undefined,
+    neck: params.ai_neck || undefined,
+    confidence: params.ai_confidence ? parseFloat(params.ai_confidence) : undefined,
+    source: params.ai_source,
+  };
+
+  const hasAiParams = Object.values(aiParams).some(
+    (v) => v !== undefined && v !== ''
+  );
 
   useEffect(() => {
     if (!id) return;
     getProductById(id)
-      .then(setProduct)
+      .then((p) => {
+        if (p && hasAiParams) {
+          // Merge AI params into product: AI fills empty fields only
+          const merged: Product = {
+            ...p,
+            garment_type: p.garment_type || aiParams.garment_type,
+            primary_color: p.primary_color || aiParams.primary_color,
+            secondary_color: p.secondary_color || aiParams.secondary_color,
+            pattern: p.pattern || aiParams.pattern,
+            fabric: p.fabric || aiParams.fabric,
+            work_type: p.work_type || aiParams.work_type,
+            occasion: p.occasion || aiParams.occasion,
+            sleeve: p.sleeve || aiParams.sleeve,
+            neck: p.neck || aiParams.neck,
+            ai_confidence: aiParams.confidence ?? p.ai_confidence,
+          };
+          setProduct(merged);
+        } else {
+          setProduct(p);
+        }
+      })
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -46,7 +114,22 @@ export default function EditProductScreen() {
           <ActivityIndicator color="#5DCAA5" size="large" />
         </View>
       ) : product ? (
-        <ProductForm initial={product} productId={id} />
+        <ProductForm
+          initial={product}
+          productId={id}
+          aiConfidence={aiParams.confidence}
+          aiFields={hasAiParams ? {
+            garment_type: aiParams.garment_type,
+            primary_color: aiParams.primary_color,
+            secondary_color: aiParams.secondary_color,
+            pattern: aiParams.pattern,
+            fabric: aiParams.fabric,
+            work_type: aiParams.work_type,
+            occasion: aiParams.occasion,
+            sleeve: aiParams.sleeve,
+            neck: aiParams.neck,
+          } : undefined}
+        />
       ) : (
         <View style={styles.loader}>
           <Text style={styles.notFound}>Product not found</Text>
