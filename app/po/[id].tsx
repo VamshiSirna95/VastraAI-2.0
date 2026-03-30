@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, Linking,
 } from 'react-native';
@@ -11,8 +11,11 @@ import { colors } from '../../constants/theme';
 import {
   getPOById, updatePO, getLRByPO, getGRNByPO, getGRNsByPO, createGRN, getGRNPendingTotal,
   getPOPendingQty, updateGRNItem, softDeletePO, getVendorById,
+  getVoiceNotes, createVoiceNote, deleteVoiceNote,
 } from '../../db/database';
-import type { PurchaseOrder, POItem, LorryReceipt, GRNRecord, Vendor } from '../../db/types';
+import type { PurchaseOrder, POItem, LorryReceipt, GRNRecord, Vendor, VoiceNote } from '../../db/types';
+import VoiceNoteRecorder from '../../components/VoiceNoteRecorder';
+import VoiceNotePlayer from '../../components/VoiceNotePlayer';
 import { DeliveryCard } from '../../components/DeliveryCard';
 import { calculateDelivery, type DeliverySchedule } from '../../services/delivery';
 import { generatePODocument } from '../../services/poDocument';
@@ -76,6 +79,8 @@ export default function PODetailScreen() {
   const [grnPending, setGrnPending] = useState<{ totalOrdered: number; totalReceived: number; totalPending: number; allReceived: boolean } | null>(null);
   const [generatingDoc, setGeneratingDoc] = useState(false);
   const [vendor, setVendor] = useState<Vendor | null>(null);
+  const [voiceNotes, setVoiceNotes] = useState<VoiceNote[]>([]);
+  const [showRecorder, setShowRecorder] = useState(false);
 
   // Cancel remaining modal state
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -111,6 +116,8 @@ export default function PODetailScreen() {
     if (id) {
       const pendingQtyData = await getPOPendingQty(id);
       setGrnPendingItems(pendingQtyData.filter((i) => i.pendingQty > 0).length);
+      const notes = await getVoiceNotes(id);
+      setVoiceNotes(notes);
     }
   }, [id]);
 
@@ -500,6 +507,46 @@ export default function PODetailScreen() {
           })}
         </View>
 
+        {/* Voice Notes */}
+        <View style={styles.glassCard}>
+          <View style={styles.sectionRow}>
+            <Text style={styles.sectionLabel}>VOICE NOTES</Text>
+            <View style={styles.countBadge}>
+              <Text style={styles.countText}>{voiceNotes.length}</Text>
+            </View>
+          </View>
+          {voiceNotes.map((vn, i) => (
+            <VoiceNotePlayer
+              key={vn.id}
+              uri={vn.file_uri}
+              duration={vn.duration_seconds}
+              label={`Note ${i + 1}`}
+              onDelete={async () => {
+                await deleteVoiceNote(vn.id);
+                if (id) setVoiceNotes(await getVoiceNotes(id));
+              }}
+            />
+          ))}
+          {showRecorder ? (
+            <VoiceNoteRecorder
+              onSave={async (fileUri, durationSeconds) => {
+                await createVoiceNote(id ?? null, null, fileUri, durationSeconds);
+                if (id) setVoiceNotes(await getVoiceNotes(id));
+                setShowRecorder(false);
+              }}
+              onCancel={() => setShowRecorder(false)}
+            />
+          ) : (
+            <TouchableOpacity style={styles.addNoteBtn} onPress={() => setShowRecorder(true)}>
+              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                <Path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke={colors.amber} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                <Path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" stroke={colors.amber} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+              <Text style={styles.addNoteBtnText}>Add Voice Note</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
         {/* Summary */}
         <View style={[styles.glassCard, styles.summaryCard]}>
           <Text style={styles.sectionLabel}>SUMMARY</Text>
@@ -743,6 +790,19 @@ const styles = StyleSheet.create({
   infoValue: { fontSize: 13, fontWeight: '600', color: '#FFFFFF', fontFamily: 'Inter_500Medium' },
   notesBox: { marginTop: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: 10 },
   notesText: { fontSize: 13, color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_400Regular' },
+  addNoteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    marginTop: 4,
+    backgroundColor: 'rgba(239,159,39,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,159,39,0.2)',
+    borderRadius: 8,
+  },
+  addNoteBtnText: { fontSize: 13, fontWeight: '700', color: colors.amber, fontFamily: 'Inter_700Bold' },
 
   lrDetails: { gap: 2 },
   lrStatusBadge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginTop: 6 },

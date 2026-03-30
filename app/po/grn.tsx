@@ -10,8 +10,11 @@ import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import {
   getGRN, getGRNByPO, getGRNsByPO, createGRN, updateGRNItem, finalizeGRN, addGRNPhoto, getPOById,
+  getVoiceNotes, createVoiceNote, deleteVoiceNote,
 } from '../../db/database';
-import type { GRNRecord, GRNItem, GRNSizeData, PurchaseOrder } from '../../db/types';
+import type { GRNRecord, GRNItem, GRNSizeData, PurchaseOrder, VoiceNote } from '../../db/types';
+import VoiceNoteRecorder from '../../components/VoiceNoteRecorder';
+import VoiceNotePlayer from '../../components/VoiceNotePlayer';
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -75,6 +78,9 @@ export default function GRNScreen() {
   const [totalGrns, setTotalGrns] = useState(1);
   const [localData, setLocalData] = useState<Record<string, LocalItem>>({});
   const [finalizing, setFinalizing] = useState(false);
+  const [poVoiceNotes, setPoVoiceNotes] = useState<VoiceNote[]>([]);
+  const [showPONotes, setShowPONotes] = useState(false);
+  const [showPORecorder, setShowPORecorder] = useState(false);
 
   const load = useCallback(async () => {
     if (!poId) return;
@@ -108,6 +114,11 @@ export default function GRNScreen() {
       }
       return next;
     });
+
+    if (poId) {
+      const notes = await getVoiceNotes(poId);
+      setPoVoiceNotes(notes);
+    }
   }, [poId, grnId]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -345,7 +356,54 @@ export default function GRNScreen() {
           <Text style={styles.poRefText}>
             {totalGrns > 1 ? `GRN ${grnIndex} of ${totalGrns} · ` : ''}{po?.po_number ?? poId}{po?.vendor_name ? ` · ${po.vendor_name}` : ''}
           </Text>
+          {poVoiceNotes.length > 0 && (
+            <TouchableOpacity
+              style={styles.poNoteIndicator}
+              onPress={() => setShowPONotes((v) => !v)}
+            >
+              <Text style={styles.poNoteIndicatorText}>
+                🎤 {poVoiceNotes.length} note{poVoiceNotes.length > 1 ? 's' : ''}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
+
+        {/* PO Voice Notes expanded */}
+        {showPONotes && (
+          <View style={styles.poNotesPanel}>
+            {poVoiceNotes.map((vn, i) => (
+              <VoiceNotePlayer
+                key={vn.id}
+                uri={vn.file_uri}
+                duration={vn.duration_seconds}
+                label={`PO Note ${i + 1}`}
+                onDelete={async () => {
+                  await deleteVoiceNote(vn.id);
+                  if (poId) setPoVoiceNotes(await getVoiceNotes(poId));
+                }}
+              />
+            ))}
+            {showPORecorder ? (
+              <VoiceNoteRecorder
+                onSave={async (fileUri, durationSeconds) => {
+                  if (poId) {
+                    await createVoiceNote(poId, null, fileUri, durationSeconds);
+                    setPoVoiceNotes(await getVoiceNotes(poId));
+                  }
+                  setShowPORecorder(false);
+                }}
+                onCancel={() => setShowPORecorder(false)}
+              />
+            ) : (
+              <TouchableOpacity
+                style={styles.addNoteBtn}
+                onPress={() => setShowPORecorder(true)}
+              >
+                <Text style={styles.addNoteBtnText}>+ Add Note</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
         {/* Progress bar */}
         <View style={styles.progressCard}>
@@ -646,8 +704,36 @@ const styles = StyleSheet.create({
   grnBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   grnBadgeText: { fontSize: 10, fontWeight: '700', fontFamily: 'Inter_700Bold' },
 
-  poRef: { paddingHorizontal: 20, marginBottom: 12 },
-  poRefText: { fontSize: 12, color: 'rgba(255,255,255,0.3)', fontFamily: 'Inter_400Regular' },
+  poRef: { paddingHorizontal: 20, marginBottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  poRefText: { fontSize: 12, color: 'rgba(255,255,255,0.3)', fontFamily: 'Inter_400Regular', flex: 1 },
+  poNoteIndicator: {
+    backgroundColor: 'rgba(239,159,39,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,159,39,0.25)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  poNoteIndicatorText: { fontSize: 11, color: colors.amber, fontFamily: 'Inter_700Bold', fontWeight: '700' },
+  poNotesPanel: {
+    marginHorizontal: 20,
+    marginBottom: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 12,
+    padding: 12,
+  },
+  addNoteBtn: {
+    paddingVertical: 8,
+    alignItems: 'center',
+    backgroundColor: 'rgba(239,159,39,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,159,39,0.2)',
+    borderRadius: 8,
+    marginTop: 4,
+  },
+  addNoteBtnText: { fontSize: 13, fontWeight: '700', color: colors.amber, fontFamily: 'Inter_700Bold' },
 
   progressCard: {
     marginHorizontal: 20,

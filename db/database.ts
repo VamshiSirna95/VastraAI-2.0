@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { CREATE_TABLES } from './schema';
-import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt, GRNSizeData, Store, StockAllocation, User, AnalyticsData } from './types';
+import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt, GRNSizeData, Store, StockAllocation, User, AnalyticsData, VoiceNote } from './types';
 import { SIZE_TEMPLATES } from './types';
 
 // ── DB singleton ──────────────────────────────────────────────────────────────
@@ -1425,6 +1425,39 @@ export async function updateLastLogin(userId: number): Promise<void> {
 export async function getUserCount(): Promise<number> {
   const row = await getDb().getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM users');
   return row?.count ?? 0;
+}
+
+// ── Voice Notes ──────────────────────────────────────────────────────────────
+
+export async function createVoiceNote(
+  poId: string | null,
+  poItemId: string | null,
+  fileUri: string,
+  durationSeconds: number | null,
+): Promise<number> {
+  const result = await getDb().runAsync(
+    `INSERT INTO voice_notes (po_id, po_item_id, file_uri, duration_seconds) VALUES (?,?,?,?)`,
+    [poId, poItemId, fileUri, durationSeconds]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function getVoiceNotes(poId: string): Promise<VoiceNote[]> {
+  return getDb().getAllAsync<VoiceNote>(
+    `SELECT * FROM voice_notes WHERE po_id = ? ORDER BY created_at ASC`,
+    [poId]
+  );
+}
+
+export async function getVoiceNotesByItem(poItemId: string): Promise<VoiceNote[]> {
+  return getDb().getAllAsync<VoiceNote>(
+    `SELECT * FROM voice_notes WHERE po_item_id = ? ORDER BY created_at ASC`,
+    [poItemId]
+  );
+}
+
+export async function deleteVoiceNote(id: number): Promise<void> {
+  await getDb().runAsync(`DELETE FROM voice_notes WHERE id = ?`, [id]);
 }
 
 // ── Analytics ─────────────────────────────────────────────────────────────────

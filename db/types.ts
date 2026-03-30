@@ -309,6 +309,16 @@ export interface LorryReceipt {
   updated_at: string;
 }
 
+export interface VoiceNote {
+  id: number;
+  po_id?: string;
+  po_item_id?: string;
+  file_uri: string;
+  duration_seconds?: number;
+  transcription?: string;
+  created_at: string;
+}
+
 export interface AnalyticsData {
   totalPOValue: number;
   totalPOCount: number;

@@ -9,11 +9,15 @@ import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import GlassPicker from '../../components/ui/GlassPicker';
 import SizeQtyMatrix from '../../components/SizeQtyMatrix';
+import VoiceNoteRecorder from '../../components/VoiceNoteRecorder';
+import VoiceNotePlayer from '../../components/VoiceNotePlayer';
 import { DeliveryCard } from '../../components/DeliveryCard';
 import {
   createPO, updatePO, getPOById, addPOItem, updatePOItem, removePOItem,
   getVendors, getTrips, updateTripSpent,
+  createVoiceNote, getVoiceNotes, deleteVoiceNote,
 } from '../../db/database';
+import type { VoiceNote } from '../../db/types';
 import { calculateDelivery, formatDate, type DeliverySchedule } from '../../services/delivery';
 import type { PurchaseOrder, POItem, Vendor, PurchaseTrip } from '../../db/types';
 import { SIZE_TEMPLATES } from '../../db/types';
@@ -155,6 +159,8 @@ export default function NewPOScreen() {
   const [deliveryDate, setDeliveryDate] = useState('');
   const [deliverySchedule, setDeliverySchedule] = useState<DeliverySchedule | null>(null);
   const [saving, setSaving] = useState(false);
+  const [voiceNotes, setVoiceNotes] = useState<VoiceNote[]>([]);
+  const [showPORecorder, setShowPORecorder] = useState(false);
   // Ref to persist vendor_id synchronously (avoids async state update timing issue)
   const vendorIdRef = useRef<string | undefined>(undefined);
 
@@ -200,6 +206,8 @@ export default function NewPOScreen() {
 
   const reloadItems = async () => {
     if (!poId) return;
+    const notes = await getVoiceNotes(poId);
+    setVoiceNotes(notes);
     const updated = await getPOById(poId);
     if (updated?.items) {
       const enriched = updated.items as EnrichedItem[];
@@ -433,6 +441,52 @@ export default function NewPOScreen() {
             <Text style={styles.addArticleText}>Add Article</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Voice Notes (only visible once PO has been created) */}
+        {poId && (
+          <View style={styles.glassCard}>
+            <View style={styles.sectionRow}>
+              <Text style={styles.sectionLabel}>VOICE NOTES</Text>
+              <View style={styles.countBadge}>
+                <Text style={styles.countText}>{voiceNotes.length}</Text>
+              </View>
+            </View>
+            {voiceNotes.map((vn, i) => (
+              <VoiceNotePlayer
+                key={vn.id}
+                uri={vn.file_uri}
+                duration={vn.duration_seconds}
+                label={`Note ${i + 1}`}
+                onDelete={async () => {
+                  await deleteVoiceNote(vn.id);
+                  const updated = await getVoiceNotes(poId);
+                  setVoiceNotes(updated);
+                }}
+              />
+            ))}
+            {showPORecorder ? (
+              <VoiceNoteRecorder
+                onSave={async (fileUri, durationSeconds) => {
+                  await createVoiceNote(poId, null, fileUri, durationSeconds);
+                  setVoiceNotes(await getVoiceNotes(poId));
+                  setShowPORecorder(false);
+                }}
+                onCancel={() => setShowPORecorder(false)}
+              />
+            ) : (
+              <TouchableOpacity
+                style={styles.addArticleBtn}
+                onPress={() => setShowPORecorder(true)}
+              >
+                <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                  <Path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke={colors.amber} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                  <Path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" stroke={colors.amber} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                </Svg>
+                <Text style={styles.addArticleText}>Add Voice Note</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
         {/* Summary */}
         <View style={[styles.glassCard, styles.summaryCard]}>

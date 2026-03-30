@@ -253,6 +253,17 @@ export const CREATE_TABLES = [
     created_at TEXT DEFAULT (datetime('now'))
   )`,
 
+  // Voice Notes — audio recordings attached to POs or PO items
+  `CREATE TABLE IF NOT EXISTS voice_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    po_id TEXT REFERENCES purchase_orders(id),
+    po_item_id TEXT REFERENCES po_items(id),
+    file_uri TEXT NOT NULL,
+    duration_seconds INTEGER,
+    transcription TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
+
   // Lorry Receipts
   `CREATE TABLE IF NOT EXISTS lorry_receipts (
     id TEXT PRIMARY KEY,
