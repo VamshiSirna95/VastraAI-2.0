@@ -215,6 +215,32 @@ export const CREATE_TABLES = [
     created_at TEXT DEFAULT (datetime('now'))
   )`,
 
+  // Stores
+  `CREATE TABLE IF NOT EXISTS stores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    code TEXT UNIQUE NOT NULL,
+    address TEXT,
+    city TEXT,
+    manager_name TEXT,
+    manager_phone TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
+
+  // Stock Allocations — per GRN item to stores with size breakdown
+  `CREATE TABLE IF NOT EXISTS stock_allocations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    grn_id TEXT NOT NULL REFERENCES grn_records(id),
+    grn_item_id TEXT NOT NULL REFERENCES grn_items(id),
+    product_id TEXT NOT NULL,
+    store_id INTEGER NOT NULL REFERENCES stores(id),
+    size_allocations_json TEXT NOT NULL,
+    total_allocated INTEGER NOT NULL DEFAULT 0,
+    status TEXT DEFAULT 'pending',
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
+
   // Lorry Receipts
   `CREATE TABLE IF NOT EXISTS lorry_receipts (
     id TEXT PRIMARY KEY,

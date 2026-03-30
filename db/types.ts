@@ -255,6 +255,34 @@ export interface GRNPhoto {
   created_at: string;
 }
 
+export interface Store {
+  id: number;
+  name: string;
+  code: string;
+  address?: string;
+  city?: string;
+  manager_name?: string;
+  manager_phone?: string;
+  is_active: number;
+  created_at: string;
+}
+
+export interface StockAllocation {
+  id: number;
+  grn_id: string;
+  grn_item_id: string;
+  product_id: string;
+  store_id: number;
+  size_allocations_json: string;
+  size_allocations?: Record<string, number>;
+  total_allocated: number;
+  status: 'pending' | 'dispatched' | 'received';
+  created_at: string;
+  // Joined
+  store_name?: string;
+  store_code?: string;
+}
+
 export interface LorryReceipt {
   id: string;
   po_id: string;

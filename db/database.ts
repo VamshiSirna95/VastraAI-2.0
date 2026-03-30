@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { CREATE_TABLES } from './schema';
-import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt, GRNSizeData } from './types';
+import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt, GRNSizeData, Store, StockAllocation } from './types';
 import { SIZE_TEMPLATES } from './types';
 
 // ── DB singleton ──────────────────────────────────────────────────────────────
@@ -1098,4 +1098,97 @@ export async function getTripBudgetReport(): Promise<TripBudgetReport> {
       utilization: r.budget > 0 ? Math.round((r.spent / r.budget) * 100) : 0,
     })),
   };
+}
+
+// ── Stores ────────────────────────────────────────────────────────────────────
+
+export async function getStores(activeOnly = false): Promise<Store[]> {
+  const db = getDb();
+  if (activeOnly) {
+    return db.getAllAsync<Store>('SELECT * FROM stores WHERE is_active = 1 ORDER BY code');
+  }
+  return db.getAllAsync<Store>('SELECT * FROM stores ORDER BY code');
+}
+
+export async function getStoreById(id: number): Promise<Store | null> {
+  return getDb().getFirstAsync<Store>('SELECT * FROM stores WHERE id = ?', [id]);
+}
+
+export async function createStore(data: Partial<Store>): Promise<number> {
+  const db = getDb();
+  const result = await db.runAsync(
+    `INSERT INTO stores (name, code, address, city, manager_name, manager_phone, is_active)
+     VALUES (?,?,?,?,?,?,?)`,
+    [
+      data.name ?? 'Store',
+      data.code ?? '',
+      data.address ?? null,
+      data.city ?? null,
+      data.manager_name ?? null,
+      data.manager_phone ?? null,
+      data.is_active ?? 1,
+    ]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function updateStore(id: number, data: Partial<Store>): Promise<void> {
+  const db = getDb();
+  const excluded = ['id', 'created_at'];
+  const fields = Object.keys(data).filter((k) => !excluded.includes(k));
+  if (fields.length === 0) return;
+  const setClause = fields.map((f) => `${f} = ?`).join(', ');
+  const values = fields.map((f) => (data as Record<string, unknown>)[f] ?? null) as (string | number | null)[];
+  await db.runAsync(`UPDATE stores SET ${setClause} WHERE id = ?`, [...values, id]);
+}
+
+// ── Stock Allocations ─────────────────────────────────────────────────────────
+
+export async function createAllocation(
+  grnId: string,
+  grnItemId: string,
+  productId: string,
+  storeId: number,
+  sizeAllocations: Record<string, number>
+): Promise<number> {
+  const db = getDb();
+  const totalAllocated = Object.values(sizeAllocations).reduce((s, v) => s + v, 0);
+  const result = await db.runAsync(
+    `INSERT INTO stock_allocations (grn_id, grn_item_id, product_id, store_id, size_allocations_json, total_allocated, status)
+     VALUES (?,?,?,?,?,?,'pending')`,
+    [grnId, grnItemId, productId, storeId, JSON.stringify(sizeAllocations), totalAllocated]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function getAllocationsByGRN(grnId: string): Promise<StockAllocation[]> {
+  const rows = await getDb().getAllAsync<StockAllocation>(
+    `SELECT sa.*, s.name as store_name, s.code as store_code
+     FROM stock_allocations sa
+     LEFT JOIN stores s ON sa.store_id = s.id
+     WHERE sa.grn_id = ? ORDER BY sa.store_id, sa.created_at`,
+    [grnId]
+  );
+  return rows.map((r) => ({
+    ...r,
+    size_allocations: r.size_allocations_json ? JSON.parse(r.size_allocations_json) as Record<string, number> : {},
+  }));
+}
+
+export async function getAllocationsByStore(storeId: number): Promise<StockAllocation[]> {
+  const rows = await getDb().getAllAsync<StockAllocation>(
+    `SELECT sa.*, s.name as store_name, s.code as store_code
+     FROM stock_allocations sa
+     LEFT JOIN stores s ON sa.store_id = s.id
+     WHERE sa.store_id = ? ORDER BY sa.created_at DESC`,
+    [storeId]
+  );
+  return rows.map((r) => ({
+    ...r,
+    size_allocations: r.size_allocations_json ? JSON.parse(r.size_allocations_json) as Record<string, number> : {},
+  }));
+}
+
+export async function deleteAllocationsByGRN(grnId: string): Promise<void> {
+  await getDb().runAsync('DELETE FROM stock_allocations WHERE grn_id = ?', [grnId]);
 }

@@ -405,6 +405,14 @@ export default function PODetailScreen() {
                     {grn.overall_status === 'pending' ? 'Continue GRN →' : 'View GRN →'}
                   </Text>
                 </TouchableOpacity>
+                {grn.overall_status !== 'pending' && (
+                  <TouchableOpacity
+                    style={styles.allocateBtn}
+                    onPress={() => router.push(`/po/allocate?grnId=${grn.id}`)}
+                  >
+                    <Text style={styles.allocateBtnText}>Allocate to Stores →</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             ) : (
               <TouchableOpacity
@@ -714,6 +722,8 @@ const styles = StyleSheet.create({
   grnStatLabel: { fontSize: 10, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular' },
   openGrnBtn: { paddingVertical: 8, marginTop: 4 },
   openGrnText: { fontSize: 13, fontWeight: '700', color: colors.blue, fontFamily: 'Inter_700Bold' },
+  allocateBtn: { paddingVertical: 8, marginTop: 4 },
+  allocateBtnText: { fontSize: 13, fontWeight: '700', color: colors.teal, fontFamily: 'Inter_700Bold' },
 
   itemRow: {
     flexDirection: 'row',

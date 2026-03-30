@@ -1,6 +1,23 @@
-import { createVendor, createProduct, getProductCount, createTrip, getTrips, createPO, addPOItem, updateTripSpent } from './database';
+import { createVendor, createProduct, getProductCount, createTrip, getTrips, createPO, addPOItem, updateTripSpent, getStores, createStore } from './database';
+
+async function seedStores(): Promise<void> {
+  const existing = await getStores();
+  if (existing.length > 0) return;
+  const STORES = [
+    { name: 'KMF Main Store',      code: 'KMF-01', city: 'Hyderabad', address: 'Begum Bazaar', manager_name: 'Vamshi K' },
+    { name: 'KMF Store 2',         code: 'KMF-02', city: 'Hyderabad', address: 'Kukatpally', manager_name: 'Ravi S' },
+    { name: 'KMF Store 3',         code: 'KMF-03', city: 'Hyderabad', address: 'Dilsukhnagar', manager_name: 'Suresh M' },
+    { name: 'Mangalagowri Main',    code: 'MGBT-01', city: 'Hyderabad', address: 'Abids', manager_name: 'Lakshmi R' },
+    { name: 'Mangalagowri 2',       code: 'MGBT-02', city: 'Hyderabad', address: 'LB Nagar', manager_name: 'Kavya T' },
+  ];
+  for (const s of STORES) {
+    await createStore({ ...s, is_active: 1 });
+  }
+}
 
 export async function seedDemoData(): Promise<void> {
+  await seedStores();
+
   const count = await getProductCount();
 
   // Always ensure demo trip exists even if products were seeded before
