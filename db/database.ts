@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { CREATE_TABLES } from './schema';
-import type { Product, ProductPhoto, Vendor, CustomAttribute } from './types';
+import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig } from './types';
 
 // ── DB singleton ──────────────────────────────────────────────────────────────
 
@@ -14,6 +14,7 @@ export async function initDatabase(): Promise<void> {
     await _db.execAsync(sql);
   }
   await seedAttributeTemplates();
+  await seedDeliveryConfig();
 }
 
 export function getDb(): SQLite.SQLiteDatabase {
@@ -343,4 +344,264 @@ export async function getAttributeTemplate(garmentType: string): Promise<string[
     [garmentType]
   );
   return rows.map((r) => r.attribute_name);
+}
+
+// ── Purchase Orders ───────────────────────────────────────────────────────────
+
+async function getNextPOSequence(): Promise<number> {
+  const db = getDb();
+  const row = await db.getFirstAsync<{ cnt: number }>(
+    'SELECT COUNT(*) as cnt FROM purchase_orders'
+  );
+  return (row?.cnt ?? 0) + 1;
+}
+
+export async function createPO(po: Partial<PurchaseOrder>): Promise<string> {
+  const db = getDb();
+  const id = uuid();
+  const seq = await getNextPOSequence();
+  const now = new Date();
+  const yymm = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const po_number = `KMF/PO/${yymm}/${String(seq).padStart(4, '0')}`;
+  await db.runAsync(
+    `INSERT INTO purchase_orders (
+      id, po_number, vendor_id, trip_id, status,
+      total_qty, total_value, delivery_date, dispatch_date, store_arrival_date,
+      notes, voice_note_uri
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      id,
+      po_number,
+      po.vendor_id ?? '',
+      po.trip_id ?? null,
+      po.status ?? 'draft',
+      po.total_qty ?? 0,
+      po.total_value ?? 0,
+      po.delivery_date ?? null,
+      po.dispatch_date ?? null,
+      po.store_arrival_date ?? null,
+      po.notes ?? null,
+      po.voice_note_uri ?? null,
+    ]
+  );
+  return id;
+}
+
+export async function getPOs(filters?: { status?: string; vendorId?: string; tripId?: string }): Promise<PurchaseOrder[]> {
+  const db = getDb();
+  const conditions: string[] = [];
+  const params: (string | null)[] = [];
+  if (filters?.status) { conditions.push('po.status = ?'); params.push(filters.status); }
+  if (filters?.vendorId) { conditions.push('po.vendor_id = ?'); params.push(filters.vendorId); }
+  if (filters?.tripId) { conditions.push('po.trip_id = ?'); params.push(filters.tripId); }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  return db.getAllAsync<PurchaseOrder>(
+    `SELECT po.*, v.name as vendor_name FROM purchase_orders po
+     LEFT JOIN vendors v ON po.vendor_id = v.id
+     ${where}
+     ORDER BY po.updated_at DESC`,
+    params
+  );
+}
+
+export async function getPOById(id: string): Promise<PurchaseOrder | null> {
+  const db = getDb();
+  const po = await db.getFirstAsync<PurchaseOrder>(
+    `SELECT po.*, v.name as vendor_name FROM purchase_orders po
+     LEFT JOIN vendors v ON po.vendor_id = v.id
+     WHERE po.id = ?`,
+    [id]
+  );
+  if (!po) return null;
+  po.items = await getPOItems(id);
+  return po;
+}
+
+export async function updatePO(id: string, updates: Partial<PurchaseOrder>): Promise<void> {
+  const db = getDb();
+  const excluded = ['id', 'po_number', 'created_at', 'items', 'vendor', 'trip', 'vendor_name'];
+  const fields = Object.keys(updates).filter((k) => !excluded.includes(k));
+  if (fields.length === 0) return;
+  const setClause = fields.map((f) => `${f} = ?`).join(', ');
+  const values = fields.map((f) => (updates as Record<string, unknown>)[f] ?? null) as (string | number | null)[];
+  await db.runAsync(
+    `UPDATE purchase_orders SET ${setClause}, updated_at = datetime('now') WHERE id = ?`,
+    [...values, id]
+  );
+}
+
+export async function deletePO(id: string): Promise<void> {
+  await getDb().runAsync('DELETE FROM purchase_orders WHERE id = ?', [id]);
+}
+
+export async function getPOCount(): Promise<number> {
+  const row = await getDb().getFirstAsync<{ cnt: number }>(
+    "SELECT COUNT(*) as cnt FROM purchase_orders WHERE status NOT IN ('closed','received')"
+  );
+  return row?.cnt ?? 0;
+}
+
+// ── PO Items ──────────────────────────────────────────────────────────────────
+
+async function recalcPOTotals(poId: string): Promise<void> {
+  const db = getDb();
+  await db.runAsync(
+    `UPDATE purchase_orders SET
+      total_qty = (SELECT COALESCE(SUM(total_qty),0) FROM po_items WHERE po_id = ?),
+      total_value = (SELECT COALESCE(SUM(total_price),0) FROM po_items WHERE po_id = ?),
+      updated_at = datetime('now')
+     WHERE id = ?`,
+    [poId, poId, poId]
+  );
+}
+
+export async function addPOItem(item: Partial<POItem>): Promise<string> {
+  const db = getDb();
+  const id = uuid();
+  const total_qty = (item.size_s ?? 0) + (item.size_m ?? 0) + (item.size_l ?? 0) +
+    (item.size_xl ?? 0) + (item.size_xxl ?? 0) + (item.size_free ?? 0);
+  const total_price = total_qty * (item.unit_price ?? 0);
+  await db.runAsync(
+    `INSERT INTO po_items (id, po_id, product_id, size_s, size_m, size_l, size_xl, size_xxl, size_free, total_qty, unit_price, total_price, notes)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      id, item.po_id ?? '', item.product_id ?? '',
+      item.size_s ?? 0, item.size_m ?? 0, item.size_l ?? 0,
+      item.size_xl ?? 0, item.size_xxl ?? 0, item.size_free ?? 0,
+      total_qty, item.unit_price ?? 0, total_price, item.notes ?? null,
+    ]
+  );
+  if (item.po_id) await recalcPOTotals(item.po_id);
+  return id;
+}
+
+export async function updatePOItem(id: string, updates: Partial<POItem>): Promise<void> {
+  const db = getDb();
+  const existing = await db.getFirstAsync<POItem>('SELECT * FROM po_items WHERE id = ?', [id]);
+  if (!existing) return;
+  const merged = { ...existing, ...updates };
+  const total_qty = merged.size_s + merged.size_m + merged.size_l +
+    merged.size_xl + merged.size_xxl + merged.size_free;
+  const total_price = total_qty * merged.unit_price;
+  await db.runAsync(
+    `UPDATE po_items SET size_s=?, size_m=?, size_l=?, size_xl=?, size_xxl=?, size_free=?,
+     total_qty=?, unit_price=?, total_price=?, notes=? WHERE id=?`,
+    [merged.size_s, merged.size_m, merged.size_l, merged.size_xl, merged.size_xxl, merged.size_free,
+     total_qty, merged.unit_price, total_price, merged.notes ?? null, id]
+  );
+  await recalcPOTotals(existing.po_id);
+}
+
+export async function removePOItem(id: string): Promise<void> {
+  const db = getDb();
+  const item = await db.getFirstAsync<{ po_id: string }>('SELECT po_id FROM po_items WHERE id = ?', [id]);
+  await db.runAsync('DELETE FROM po_items WHERE id = ?', [id]);
+  if (item?.po_id) await recalcPOTotals(item.po_id);
+}
+
+export async function getPOItems(poId: string): Promise<POItem[]> {
+  const db = getDb();
+  const rows = await db.getAllAsync<POItem>(
+    `SELECT pi.*, p.design_name, p.garment_type, p.primary_color, p.purchase_price,
+            p.selling_price, p.mrp, p.vendor_id
+     FROM po_items pi
+     LEFT JOIN products p ON pi.product_id = p.id
+     WHERE pi.po_id = ?
+     ORDER BY pi.created_at ASC`,
+    [poId]
+  );
+  return rows;
+}
+
+// ── Purchase Trips ────────────────────────────────────────────────────────────
+
+export async function createTrip(trip: Partial<PurchaseTrip>): Promise<string> {
+  const db = getDb();
+  const id = uuid();
+  await db.runAsync(
+    `INSERT INTO purchase_trips (id, name, budget, spent, vendor_area, status, start_date, end_date, notes)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+    [
+      id, trip.name ?? 'New Trip', trip.budget ?? 0, 0,
+      trip.vendor_area ?? null, trip.status ?? 'active',
+      trip.start_date ?? null, trip.end_date ?? null, trip.notes ?? null,
+    ]
+  );
+  return id;
+}
+
+export async function getTrips(status?: string): Promise<PurchaseTrip[]> {
+  const db = getDb();
+  if (status) {
+    return db.getAllAsync<PurchaseTrip>(
+      'SELECT * FROM purchase_trips WHERE status = ? ORDER BY created_at DESC',
+      [status]
+    );
+  }
+  return db.getAllAsync<PurchaseTrip>('SELECT * FROM purchase_trips ORDER BY created_at DESC');
+}
+
+export async function getTripById(id: string): Promise<PurchaseTrip | null> {
+  const db = getDb();
+  const trip = await db.getFirstAsync<PurchaseTrip>(
+    'SELECT * FROM purchase_trips WHERE id = ?', [id]
+  );
+  if (!trip) return null;
+  trip.purchase_orders = await getPOs({ tripId: id });
+  return trip;
+}
+
+export async function updateTrip(id: string, updates: Partial<PurchaseTrip>): Promise<void> {
+  const db = getDb();
+  const excluded = ['id', 'created_at', 'purchase_orders'];
+  const fields = Object.keys(updates).filter((k) => !excluded.includes(k));
+  if (fields.length === 0) return;
+  const setClause = fields.map((f) => `${f} = ?`).join(', ');
+  const values = fields.map((f) => (updates as Record<string, unknown>)[f] ?? null) as (string | number | null)[];
+  await db.runAsync(
+    `UPDATE purchase_trips SET ${setClause}, updated_at = datetime('now') WHERE id = ?`,
+    [...values, id]
+  );
+}
+
+export async function updateTripSpent(tripId: string): Promise<void> {
+  await getDb().runAsync(
+    `UPDATE purchase_trips SET
+      spent = (SELECT COALESCE(SUM(total_value),0) FROM purchase_orders WHERE trip_id = ?),
+      updated_at = datetime('now')
+     WHERE id = ?`,
+    [tripId, tripId]
+  );
+}
+
+// ── Delivery Config ───────────────────────────────────────────────────────────
+
+async function seedDeliveryConfig(): Promise<void> {
+  const db = getDb();
+  const existing = await db.getFirstAsync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM delivery_config');
+  if (existing && existing.cnt > 0) return;
+  await db.runAsync(
+    `INSERT INTO delivery_config (id, optimal_stock_cover_days, vendor_transit_days, inward_processing_days, store_dispatch_days)
+     VALUES (?,90,2,1,1)`,
+    [uuid()]
+  );
+}
+
+export async function getDeliveryConfig(): Promise<DeliveryConfig> {
+  const row = await getDb().getFirstAsync<DeliveryConfig>(
+    'SELECT optimal_stock_cover_days, vendor_transit_days, inward_processing_days, store_dispatch_days FROM delivery_config LIMIT 1'
+  );
+  return row ?? { optimal_stock_cover_days: 90, vendor_transit_days: 2, inward_processing_days: 1, store_dispatch_days: 1 };
+}
+
+export async function updateDeliveryConfig(config: Partial<DeliveryConfig>): Promise<void> {
+  const db = getDb();
+  const fields = Object.keys(config) as (keyof DeliveryConfig)[];
+  if (fields.length === 0) return;
+  const setClause = fields.map((f) => `${f} = ?`).join(', ');
+  const values = fields.map((f) => config[f] ?? null) as (number | null)[];
+  await db.runAsync(
+    `UPDATE delivery_config SET ${setClause}, updated_at = datetime('now')`,
+    values
+  );
 }

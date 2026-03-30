@@ -1,4 +1,4 @@
-import { createVendor, createProduct, getProductCount } from './database';
+import { createVendor, createProduct, getProductCount, createTrip, createPO, addPOItem, updateTripSpent } from './database';
 
 export async function seedDemoData(): Promise<void> {
   const count = await getProductCount();
@@ -107,7 +107,7 @@ export async function seedDemoData(): Promise<void> {
     status: 'enriched',
   });
 
-  await createProduct({
+  const p5 = await createProduct({
     design_name: 'Black Formal Trouser',
     garment_type: 'Trouser/Pant',
     vendor_id: v3,
@@ -123,4 +123,44 @@ export async function seedDemoData(): Promise<void> {
     fit: 'Slim',
     status: 'enriched',
   });
+
+  // ── Demo Purchase Trip ────────────────────────────────────────────────────
+  const trip1 = await createTrip({
+    name: 'March Week 4 — Begum Bazaar',
+    budget: 500000,
+    vendor_area: 'Begum Bazaar, Hyderabad',
+    status: 'active',
+    start_date: '28-Mar-2026',
+    end_date: '31-Mar-2026',
+  });
+
+  // ── Demo POs ──────────────────────────────────────────────────────────────
+  const po1 = await createPO({
+    vendor_id: v1,
+    trip_id: trip1,
+    status: 'draft',
+    notes: 'Reorder for Ameerpet store',
+  });
+  await addPOItem({
+    po_id: po1,
+    product_id: p5,
+    size_s: 5, size_m: 10, size_l: 8, size_xl: 6, size_xxl: 3, size_free: 0,
+    unit_price: 480,
+  });
+
+  const po2 = await createPO({
+    vendor_id: v2,
+    trip_id: trip1,
+    status: 'sent',
+    notes: 'Festival stock — Dussehra collection',
+  });
+  await addPOItem({
+    po_id: po2,
+    product_id: p5,
+    size_s: 2, size_m: 4, size_l: 4, size_xl: 2, size_xxl: 0, size_free: 0,
+    unit_price: 2800,
+  });
+
+  // Sync trip spent
+  await updateTripSpent(trip1);
 }

@@ -102,3 +102,83 @@ export const OCCASIONS = [
 ] as const;
 
 export const SEASONS = ['Summer', 'Winter', 'All-season', 'Monsoon'] as const;
+
+// ── Purchase Order types ──────────────────────────────────────────────────────
+
+export interface PurchaseOrder {
+  id: string;
+  po_number: string;
+  vendor_id: string;
+  trip_id?: string;
+  status: 'draft' | 'sent' | 'confirmed' | 'dispatched' | 'received' | 'closed';
+  total_qty: number;
+  total_value: number;
+  delivery_date?: string;
+  dispatch_date?: string;
+  store_arrival_date?: string;
+  notes?: string;
+  voice_note_uri?: string;
+  created_at: string;
+  updated_at: string;
+  // Joined
+  items?: POItem[];
+  vendor?: Vendor;
+  trip?: PurchaseTrip;
+  vendor_name?: string;
+}
+
+export interface POItem {
+  id: string;
+  po_id: string;
+  product_id: string;
+  size_s: number;
+  size_m: number;
+  size_l: number;
+  size_xl: number;
+  size_xxl: number;
+  size_free: number;
+  total_qty: number;
+  unit_price: number;
+  total_price: number;
+  notes?: string;
+  created_at: string;
+  // Joined
+  product?: Product;
+}
+
+export interface PurchaseTrip {
+  id: string;
+  name: string;
+  budget: number;
+  spent: number;
+  vendor_area?: string;
+  status: 'active' | 'completed' | 'cancelled';
+  start_date?: string;
+  end_date?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+  // Joined
+  purchase_orders?: PurchaseOrder[];
+}
+
+export interface DeliveryConfig {
+  optimal_stock_cover_days: number;
+  vendor_transit_days: number;
+  inward_processing_days: number;
+  store_dispatch_days: number;
+}
+
+// Size templates per garment type
+export const SIZE_TEMPLATES: Record<string, string[]> = {
+  'Shirt': ['S', 'M', 'L', 'XL', 'XXL'],
+  'Kurta': ['S', 'M', 'L', 'XL', 'XXL'],
+  'T-Shirt': ['S', 'M', 'L', 'XL', 'XXL'],
+  'Jeans': ['28', '30', '32', '34', '36', '38'],
+  'Trouser/Pant': ['28', '30', '32', '34', '36', '38'],
+  'Saree': ['Free'],
+  'Dupatta': ['Free'],
+  'Lehenga': ['S', 'M', 'L', 'XL'],
+  'Salwar Set': ['S', 'M', 'L', 'XL', 'XXL'],
+  'default': ['S', 'M', 'L', 'XL', 'XXL'],
+};

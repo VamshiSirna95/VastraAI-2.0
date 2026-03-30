@@ -13,8 +13,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { colors } from '../../constants/theme';
-import { getProducts, getProductCount } from '../../db/database';
-import type { Product } from '../../db/types';
+import { getProducts, getProductCount, getPOs, getPOCount } from '../../db/database';
+import type { Product, PurchaseOrder } from '../../db/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -29,6 +29,17 @@ const STATUS_CONFIG: Record<ProductStatus, { label: string; color: string }> = {
   ordered:   { label: 'Ordered',  color: '#378ADD' },
   received:  { label: 'Received', color: '#5DCAA5' },
   in_store:  { label: 'In Store', color: '#5DCAA5' },
+};
+
+type POStatus = PurchaseOrder['status'];
+
+const PO_STATUS_CONFIG: Record<POStatus, { label: string; color: string }> = {
+  draft:      { label: 'Draft',      color: '#EF9F27' },
+  sent:       { label: 'Sent',       color: '#378ADD' },
+  confirmed:  { label: 'Confirmed',  color: '#7F77DD' },
+  dispatched: { label: 'Dispatched', color: '#AFA9EC' },
+  received:   { label: 'Received',   color: '#5DCAA5' },
+  closed:     { label: 'Closed',     color: 'rgba(255,255,255,0.3)' },
 };
 
 // ── Placeholder color by garment type ─────────────────────────────────────────
@@ -49,6 +60,10 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+function formatINR(val: number): string {
+  return '₹' + val.toLocaleString('en-IN');
+}
+
 // ── Product card ──────────────────────────────────────────────────────────────
 
 interface ProductCardProps {
@@ -62,14 +77,11 @@ function ProductCard({ product, onPress }: ProductCardProps) {
 
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
-      {/* Thumbnail */}
       <View style={[styles.thumb, { backgroundColor: hexToRgba(thumbColor, 0.12) }]}>
         <Text style={[styles.thumbInitial, { color: thumbColor }]}>
           {(product.design_name ?? product.garment_type ?? '?')[0].toUpperCase()}
         </Text>
       </View>
-
-      {/* Middle content */}
       <View style={styles.cardBody}>
         <Text style={styles.cardTitle} numberOfLines={1}>
           {product.design_name ?? 'Unnamed product'}
@@ -82,7 +94,6 @@ function ProductCard({ product, onPress }: ProductCardProps) {
             {(product as Product & { vendor_name?: string }).vendor_name}
           </Text>
         ) : null}
-        {/* Attribute pills */}
         <View style={styles.pillsRow}>
           {product.pattern ? (
             <View style={[styles.pill, { backgroundColor: hexToRgba(colors.purpleLight, 0.15) }]}>
@@ -96,8 +107,6 @@ function ProductCard({ product, onPress }: ProductCardProps) {
           ) : null}
         </View>
       </View>
-
-      {/* Right: price + status */}
       <View style={styles.cardRight}>
         {product.mrp != null ? (
           <Text style={styles.cardMrp}>₹{product.mrp.toLocaleString('en-IN')}</Text>
@@ -110,18 +119,53 @@ function ProductCard({ product, onPress }: ProductCardProps) {
   );
 }
 
+// ── PO card ───────────────────────────────────────────────────────────────────
+
+interface POCardProps {
+  po: PurchaseOrder;
+  onPress: () => void;
+}
+
+function POCard({ po, onPress }: POCardProps) {
+  const statusCfg = PO_STATUS_CONFIG[po.status] ?? PO_STATUS_CONFIG.draft;
+  return (
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
+      <View style={[styles.thumb, { backgroundColor: hexToRgba(colors.purple, 0.12) }]}>
+        <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z"
+            stroke={colors.purple}
+            strokeWidth={1.8}
+            strokeLinejoin="round"
+          />
+          <Path d="M14 2v6h6" stroke={colors.purple} strokeWidth={1.8} strokeLinecap="round" />
+        </Svg>
+      </View>
+      <View style={styles.cardBody}>
+        <Text style={styles.cardTitle} numberOfLines={1}>{po.po_number}</Text>
+        <Text style={styles.cardSub} numberOfLines={1}>{po.vendor_name ?? 'Unknown vendor'}</Text>
+        {po.delivery_date && (
+          <Text style={styles.cardVendor}>Delivery: {po.delivery_date}</Text>
+        )}
+        <Text style={styles.poQty}>{po.total_qty} pcs</Text>
+      </View>
+      <View style={styles.cardRight}>
+        <Text style={styles.poValue}>{formatINR(po.total_value)}</Text>
+        <View style={[styles.statusBadge, { backgroundColor: hexToRgba(statusCfg.color, 0.12) }]}>
+          <Text style={[styles.statusText, { color: statusCfg.color }]}>{statusCfg.label}</Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 function EmptyState({ onScan }: { onScan: () => void }) {
   return (
     <View style={styles.emptyContainer}>
       <Svg width={64} height={64} viewBox="0 0 24 24" fill="none" style={styles.emptyIcon}>
-        <Path
-          d="M7 3H3v4M17 3h4v4M7 21H3v-4M17 21h4v-4"
-          stroke="rgba(255,255,255,0.1)"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-        />
+        <Path d="M7 3H3v4M17 3h4v4M7 21H3v-4M17 21h4v-4" stroke="rgba(255,255,255,0.1)" strokeWidth={1.5} strokeLinecap="round" />
         <Circle cx={12} cy={12} r={3} stroke="rgba(255,255,255,0.1)" strokeWidth={1.5} />
       </Svg>
       <Text style={styles.emptyTitle}>No products yet</Text>
@@ -133,28 +177,89 @@ function EmptyState({ onScan }: { onScan: () => void }) {
   );
 }
 
+function EmptyPOs({ onCreate }: { onCreate: () => void }) {
+  return (
+    <View style={styles.emptyContainer}>
+      <Text style={styles.emptyTitle}>No purchase orders</Text>
+      <Text style={styles.emptySub}>Create your first PO</Text>
+      <TouchableOpacity style={styles.emptyBtn} onPress={onCreate}>
+        <Text style={styles.emptyBtnText}>Create PO</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ── Segment control ───────────────────────────────────────────────────────────
+
+type Segment = 'products' | 'pos';
+
+interface SegmentControlProps {
+  active: Segment;
+  productCount: number;
+  poCount: number;
+  onChange: (s: Segment) => void;
+}
+
+function SegmentControl({ active, productCount, poCount, onChange }: SegmentControlProps) {
+  return (
+    <View style={styles.segmentRow}>
+      <TouchableOpacity
+        style={[styles.segBtn, active === 'products' && styles.segBtnActive]}
+        onPress={() => onChange('products')}
+      >
+        <Text style={[styles.segBtnText, active === 'products' && styles.segBtnTextActive]}>
+          Products
+        </Text>
+        <View style={[styles.segBadge, active === 'products' && styles.segBadgeActive]}>
+          <Text style={[styles.segBadgeText, active === 'products' && styles.segBadgeTextActive]}>
+            {productCount}
+          </Text>
+        </View>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.segBtn, active === 'pos' && styles.segBtnActive]}
+        onPress={() => onChange('pos')}
+      >
+        <Text style={[styles.segBtnText, active === 'pos' && styles.segBtnTextActive]}>
+          Purchase Orders
+        </Text>
+        <View style={[styles.segBadge, active === 'pos' && styles.segBadgeActive]}>
+          <Text style={[styles.segBadgeText, active === 'pos' && styles.segBadgeTextActive]}>
+            {poCount}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 export default function OrdersScreen() {
   const router = useRouter();
+  const [segment, setSegment] = useState<Segment>('products');
   const [products, setProducts] = useState<(Product & { vendor_name?: string })[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
+  const [pos, setPos] = useState<PurchaseOrder[]>([]);
+  const [totalProductCount, setTotalProductCount] = useState(0);
+  const [totalPOCount, setTotalPOCount] = useState(0);
   const [search, setSearch] = useState('');
   const [activeType, setActiveType] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const all = await getProducts({
-      search: search || undefined,
-      garmentType: activeType ?? undefined,
-    });
+    const [all, cnt, allPOs, poCnt] = await Promise.all([
+      getProducts({ search: search || undefined, garmentType: activeType ?? undefined }),
+      getProductCount(),
+      getPOs(),
+      getPOCount(),
+    ]);
     setProducts(all as (Product & { vendor_name?: string })[]);
-    const cnt = await getProductCount();
-    setTotalCount(cnt);
+    setTotalProductCount(cnt);
+    setPos(allPOs);
+    setTotalPOCount(poCnt);
   }, [search, activeType]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  // Derive filter chips from loaded products
   const typeChips = Array.from(
     new Set(products.map((p) => p.garment_type).filter(Boolean) as string[])
   );
@@ -164,98 +269,109 @@ export default function OrdersScreen() {
 
       {/* ── Header ─── */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.screenLabel}>PRODUCTS</Text>
-          <View style={styles.countBadge}>
-            <Text style={styles.countText}>{totalCount}</Text>
-          </View>
-        </View>
+        <Text style={styles.screenLabel}>INVENTORY</Text>
       </View>
 
-      {/* ── Search ─── */}
-      <View style={styles.searchWrapper}>
-        <View style={styles.searchBar}>
-          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-            <Circle cx={11} cy={11} r={8} stroke="rgba(255,255,255,0.25)" strokeWidth={1.8} />
-            <Path d="M21 21l-4.35-4.35" stroke="rgba(255,255,255,0.25)" strokeWidth={1.8} strokeLinecap="round" />
-          </Svg>
-          <TextInput
-            style={styles.searchInput}
-            value={search}
-            onChangeText={(t) => { setSearch(t); }}
-            onSubmitEditing={load}
-            placeholder="Search products…"
-            placeholderTextColor="rgba(255,255,255,0.25)"
-            returnKeyType="search"
-          />
-        </View>
-      </View>
-
-      {/* ── Filter chips ─── */}
-      {typeChips.length > 0 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipsContent}
-          style={styles.chipsScroll}
-        >
-          <TouchableOpacity
-            style={[styles.chip, activeType === null && styles.chipActive]}
-            onPress={() => setActiveType(null)}
-          >
-            <Text style={[styles.chipText, activeType === null && styles.chipTextActive]}>
-              All
-            </Text>
-          </TouchableOpacity>
-          {typeChips.map((type) => (
-            <TouchableOpacity
-              key={type}
-              style={[styles.chip, activeType === type && styles.chipActive]}
-              onPress={() => setActiveType(type === activeType ? null : type)}
-            >
-              <Text style={[styles.chipText, activeType === type && styles.chipTextActive]}>
-                {type}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      )}
-
-      {/* ── List ─── */}
-      <FlatList
-        data={products}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <ProductCard
-            product={item}
-            onPress={() => router.push(`/product/${item.id}`)}
-          />
-        )}
-        contentContainerStyle={[
-          styles.listContent,
-          products.length === 0 && styles.listEmpty,
-        ]}
-        ListEmptyComponent={
-          <EmptyState onScan={() => router.push('/(tabs)/scan')} />
-        }
-        showsVerticalScrollIndicator={false}
+      {/* ── Segment ─── */}
+      <SegmentControl
+        active={segment}
+        productCount={totalProductCount}
+        poCount={totalPOCount}
+        onChange={setSegment}
       />
 
-      {/* ── FAB ─── */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => router.push('/product/new')}
-        activeOpacity={0.85}
-      >
-        <Svg width={28} height={28} viewBox="0 0 24 24" fill="none">
-          <Path
-            d="M12 5v14M5 12h14"
-            stroke="#000000"
-            strokeWidth={2.5}
-            strokeLinecap="round"
+      {segment === 'products' ? (
+        <>
+          {/* ── Search ─── */}
+          <View style={styles.searchWrapper}>
+            <View style={styles.searchBar}>
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                <Circle cx={11} cy={11} r={8} stroke="rgba(255,255,255,0.25)" strokeWidth={1.8} />
+                <Path d="M21 21l-4.35-4.35" stroke="rgba(255,255,255,0.25)" strokeWidth={1.8} strokeLinecap="round" />
+              </Svg>
+              <TextInput
+                style={styles.searchInput}
+                value={search}
+                onChangeText={(t) => { setSearch(t); }}
+                onSubmitEditing={load}
+                placeholder="Search products…"
+                placeholderTextColor="rgba(255,255,255,0.25)"
+                returnKeyType="search"
+              />
+            </View>
+          </View>
+
+          {/* ── Filter chips ─── */}
+          {typeChips.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipsContent}
+              style={styles.chipsScroll}
+            >
+              <TouchableOpacity
+                style={[styles.chip, activeType === null && styles.chipActive]}
+                onPress={() => setActiveType(null)}
+              >
+                <Text style={[styles.chipText, activeType === null && styles.chipTextActive]}>All</Text>
+              </TouchableOpacity>
+              {typeChips.map((type) => (
+                <TouchableOpacity
+                  key={type}
+                  style={[styles.chip, activeType === type && styles.chipActive]}
+                  onPress={() => setActiveType(type === activeType ? null : type)}
+                >
+                  <Text style={[styles.chipText, activeType === type && styles.chipTextActive]}>{type}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+
+          {/* ── Product list ─── */}
+          <FlatList
+            data={products}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <ProductCard product={item} onPress={() => router.push(`/product/${item.id}`)} />
+            )}
+            contentContainerStyle={[styles.listContent, products.length === 0 && styles.listEmpty]}
+            ListEmptyComponent={<EmptyState onScan={() => router.push('/(tabs)/scan')} />}
+            showsVerticalScrollIndicator={false}
           />
-        </Svg>
-      </TouchableOpacity>
+
+          {/* ── FAB ─── */}
+          <TouchableOpacity style={styles.fab} onPress={() => router.push('/product/new')} activeOpacity={0.85}>
+            <Svg width={28} height={28} viewBox="0 0 24 24" fill="none">
+              <Path d="M12 5v14M5 12h14" stroke="#000000" strokeWidth={2.5} strokeLinecap="round" />
+            </Svg>
+          </TouchableOpacity>
+        </>
+      ) : (
+        <>
+          {/* ── PO list ─── */}
+          <FlatList
+            data={pos}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <POCard po={item} onPress={() => router.push(`/po/${item.id}`)} />
+            )}
+            contentContainerStyle={[styles.listContent, pos.length === 0 && styles.listEmpty]}
+            ListEmptyComponent={<EmptyPOs onCreate={() => router.push('/po/new')} />}
+            showsVerticalScrollIndicator={false}
+          />
+
+          {/* ── PO FAB ─── */}
+          <TouchableOpacity
+            style={[styles.fab, { backgroundColor: colors.purple }]}
+            onPress={() => router.push('/po/new')}
+            activeOpacity={0.85}
+          >
+            <Svg width={28} height={28} viewBox="0 0 24 24" fill="none">
+              <Path d="M12 5v14M5 12h14" stroke="#000000" strokeWidth={2.5} strokeLinecap="round" />
+            </Svg>
+          </TouchableOpacity>
+        </>
+      )}
     </SafeAreaView>
   );
 }
@@ -276,11 +392,6 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
   },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
   screenLabel: {
     fontSize: 11,
     fontWeight: '700',
@@ -289,17 +400,58 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.25)',
     fontFamily: 'Inter_700Bold',
   },
-  countBadge: {
-    backgroundColor: 'rgba(93,202,165,0.15)',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+
+  // Segment control
+  segmentRow: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginBottom: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: 4,
+    gap: 4,
   },
-  countText: {
-    fontSize: 12,
+  segBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 9,
+    gap: 6,
+  },
+  segBtnActive: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  segBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.35)',
+    fontFamily: 'Inter_500Medium',
+  },
+  segBtnTextActive: {
+    color: '#FFFFFF',
+  },
+  segBadge: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  segBadgeActive: {
+    backgroundColor: 'rgba(93,202,165,0.2)',
+  },
+  segBadgeText: {
+    fontSize: 11,
     fontWeight: '700',
-    color: '#5DCAA5',
+    color: 'rgba(255,255,255,0.3)',
     fontFamily: 'Inter_700Bold',
+  },
+  segBadgeTextActive: {
+    color: colors.teal,
   },
 
   searchWrapper: {
@@ -339,7 +491,6 @@ const styles = StyleSheet.create({
   chip: {
     height: 36,
     paddingHorizontal: 16,
-    paddingVertical: 0,
     borderRadius: 18,
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
@@ -430,7 +581,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontFamily: 'Inter_500Medium',
   },
-
   cardRight: {
     alignItems: 'flex-end',
     gap: 6,
@@ -441,6 +591,18 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#5DCAA5',
     fontFamily: 'Inter_800ExtraBold',
+  },
+  poValue: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#5DCAA5',
+    fontFamily: 'Inter_800ExtraBold',
+  },
+  poQty: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+    fontFamily: 'Inter_400Regular',
+    marginTop: 2,
   },
   statusBadge: {
     paddingHorizontal: 8,

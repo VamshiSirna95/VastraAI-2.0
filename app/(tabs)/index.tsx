@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,10 +8,11 @@ import {
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path, Polyline } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import ModuleCard, { type PatternType, type MetricData } from '../../components/ModuleCard';
+import { getPOCount } from '../../db/database';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // 20px padding on each side + 12px gap between 2 columns
@@ -181,6 +182,11 @@ const modules: ModuleData[] = [
 
 export default function HomeScreen() {
   const router = useRouter();
+  const [activePOCount, setActivePOCount] = useState(12);
+
+  useFocusEffect(useCallback(() => {
+    getPOCount().then(setActivePOCount);
+  }, []));
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -208,7 +214,7 @@ export default function HomeScreen() {
             sparkPoints="0,14 10,12 20,10 30,11 40,8 50,6 60,4"
           />
           <StatCard
-            value="12"
+            value={String(activePOCount)}
             label="Active POs"
             color={colors.amber}
             sparkPoints="0,10 10,9 20,11 30,8 40,10 50,9 60,8"
@@ -266,7 +272,7 @@ export default function HomeScreen() {
           <QuickAction
             label="Create PO"
             color={colors.purple}
-            onPress={() => router.push('/(tabs)/orders')}
+            onPress={() => router.push('/po/new')}
             icon={
               <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
                 <Path

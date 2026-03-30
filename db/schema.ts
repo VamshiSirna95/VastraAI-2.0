@@ -81,4 +81,68 @@ export const CREATE_TABLES = [
     attribute_name TEXT NOT NULL,
     display_order INTEGER DEFAULT 0
   )`,
+
+  // Purchase Orders
+  `CREATE TABLE IF NOT EXISTS purchase_orders (
+    id TEXT PRIMARY KEY,
+    po_number TEXT UNIQUE NOT NULL,
+    vendor_id TEXT NOT NULL,
+    trip_id TEXT,
+    status TEXT DEFAULT 'draft',
+    total_qty INTEGER DEFAULT 0,
+    total_value REAL DEFAULT 0,
+    delivery_date TEXT,
+    dispatch_date TEXT,
+    store_arrival_date TEXT,
+    notes TEXT,
+    voice_note_uri TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (vendor_id) REFERENCES vendors(id)
+  )`,
+
+  // PO Line Items
+  `CREATE TABLE IF NOT EXISTS po_items (
+    id TEXT PRIMARY KEY,
+    po_id TEXT NOT NULL,
+    product_id TEXT NOT NULL,
+    size_s INTEGER DEFAULT 0,
+    size_m INTEGER DEFAULT 0,
+    size_l INTEGER DEFAULT 0,
+    size_xl INTEGER DEFAULT 0,
+    size_xxl INTEGER DEFAULT 0,
+    size_free INTEGER DEFAULT 0,
+    total_qty INTEGER DEFAULT 0,
+    unit_price REAL DEFAULT 0,
+    total_price REAL DEFAULT 0,
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (po_id) REFERENCES purchase_orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES products(id)
+  )`,
+
+  // Purchase Trips (budget tracking)
+  `CREATE TABLE IF NOT EXISTS purchase_trips (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    budget REAL DEFAULT 0,
+    spent REAL DEFAULT 0,
+    vendor_area TEXT,
+    status TEXT DEFAULT 'active',
+    start_date TEXT,
+    end_date TEXT,
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  )`,
+
+  // Delivery tracking config
+  `CREATE TABLE IF NOT EXISTS delivery_config (
+    id TEXT PRIMARY KEY,
+    optimal_stock_cover_days INTEGER DEFAULT 90,
+    vendor_transit_days INTEGER DEFAULT 2,
+    inward_processing_days INTEGER DEFAULT 1,
+    store_dispatch_days INTEGER DEFAULT 1,
+    updated_at TEXT DEFAULT (datetime('now'))
+  )`,
 ];
