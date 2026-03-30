@@ -1234,8 +1234,9 @@ export async function getDashboardData(): Promise<DashboardData> {
   const monthValue = monthRow?.val ?? 0;
 
   // Monthly PO value trend — last 6 months
+  const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const trendRows = await db.getAllAsync<{ month: string; value: number }>(
-    `SELECT strftime('%b', created_at) as month,
+    `SELECT strftime('%m', created_at) as month,
             COALESCE(SUM(total_value),0) as value
      FROM purchase_orders
      WHERE is_deleted = 0
@@ -1243,7 +1244,9 @@ export async function getDashboardData(): Promise<DashboardData> {
      GROUP BY strftime('%Y-%m', created_at)
      ORDER BY strftime('%Y-%m', created_at) ASC`
   );
-  const monthlyTrend = trendRows.length > 0 ? trendRows : [{ month: 'Now', value: 0 }];
+  const monthlyTrend = trendRows.length > 0
+    ? trendRows.map((r) => ({ month: MONTH_NAMES[parseInt(r.month, 10)] ?? r.month, value: r.value }))
+    : [{ month: 'Now', value: 0 }];
 
   // Vendor quality — accept rate from GRN items joined to PO
   const qualityRows = await db.getAllAsync<{ vendor: string; acceptRate: number }>(

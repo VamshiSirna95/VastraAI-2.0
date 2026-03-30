@@ -96,21 +96,22 @@ function QuickAction({ label, color, icon, onPress }: { label: string; color: st
 // ─── Chart config ─────────────────────────────────────────────────────────────
 
 const chartConfig = {
-  backgroundGradientFrom: 'rgba(0,0,0,0)',
-  backgroundGradientFromOpacity: 0,
-  backgroundGradientTo: 'rgba(0,0,0,0)',
-  backgroundGradientToOpacity: 0,
-  color: (opacity = 1) => `rgba(93,202,165,${opacity})`,
-  labelColor: () => 'rgba(255,255,255,0.35)',
+  backgroundColor: 'transparent',
+  backgroundGradientFrom: 'rgba(255,255,255,0.04)',
+  backgroundGradientFromOpacity: 1,
+  backgroundGradientTo: 'rgba(255,255,255,0.02)',
+  backgroundGradientToOpacity: 1,
+  color: (opacity = 1) => `rgba(239,159,39,${opacity})`,
+  labelColor: (opacity = 1) => `rgba(255,255,255,${opacity * 0.5})`,
   strokeWidth: 2,
-  propsForDots: { r: '3', strokeWidth: '1', stroke: '#5DCAA5' },
-  propsForBackgroundLines: { stroke: 'rgba(255,255,255,0.04)' },
+  propsForDots: { r: '4', strokeWidth: '2', stroke: '#EF9F27' },
+  propsForBackgroundLines: { strokeDasharray: '', stroke: 'rgba(255,255,255,0.05)' },
   decimalPlaces: 0,
 };
 
 const barChartConfig = {
   ...chartConfig,
-  color: (opacity = 1) => `rgba(239,159,39,${opacity})`,
+  color: (opacity = 1) => `rgba(93,202,165,${opacity})`,
   propsForDots: { r: '0' },
 };
 
@@ -248,7 +249,7 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: 'transparent' },
+  root: { flex: 1, backgroundColor: '#000000' },
   content: { paddingBottom: 60 },
 
   header: {
@@ -259,8 +260,8 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 12,
   },
-  greeting: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', fontFamily: 'Inter_800ExtraBold' },
-  greetingSub: { fontSize: 12, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular', marginTop: 2 },
+  greeting: { fontSize: 28, fontWeight: '900', color: '#FFFFFF', fontFamily: 'Inter_900Black' },
+  greetingSub: { fontSize: 14, color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_400Regular', marginTop: 2 },
   reportBtn: { padding: 8 },
 
   statsRow: { paddingHorizontal: 20, gap: 10, paddingBottom: 4 },
@@ -274,20 +275,20 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   statValue: { fontSize: 26, fontWeight: '900', fontFamily: 'Inter_900Black' },
-  statLabel: { fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular' },
+  statLabel: { fontSize: 11, color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_400Regular' },
   statSub: { fontSize: 10, fontFamily: 'Inter_400Regular' },
 
   quickActionsRow: { paddingHorizontal: 20, gap: 10, paddingVertical: 12 },
   quickAction: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingVertical: 10, paddingHorizontal: 14,
-    borderWidth: 1, borderRadius: 8,
+    borderWidth: 1, borderRadius: 20,
   },
   quickActionLabel: { fontSize: 13, fontWeight: '700', fontFamily: 'Inter_700Bold' },
 
   sectionLabel: {
-    fontSize: 11, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase',
-    color: 'rgba(255,255,255,0.25)', paddingHorizontal: 20,
+    fontSize: 12, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.4)', paddingHorizontal: 20,
     marginTop: 20, marginBottom: 10, fontFamily: 'Inter_700Bold',
   },
 
@@ -314,6 +315,6 @@ const styles = StyleSheet.create({
   },
   activityItem: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   activityDot: { width: 7, height: 7, borderRadius: 4 },
-  activityDesc: { flex: 1, fontSize: 13, color: 'rgba(255,255,255,0.6)', fontFamily: 'Inter_400Regular' },
-  activityTime: { fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: 'Inter_400Regular' },
+  activityDesc: { flex: 1, fontSize: 13, color: 'rgba(255,255,255,0.8)', fontFamily: 'Inter_400Regular' },
+  activityTime: { fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: 'Inter_400Regular' },
 });
