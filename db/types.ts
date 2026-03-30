@@ -169,6 +169,71 @@ export interface DeliveryConfig {
   store_dispatch_days: number;
 }
 
+// ── GRN types ─────────────────────────────────────────────────────────────────
+
+export interface GRNRecord {
+  id: string;
+  po_id: string;
+  grn_number: string;
+  received_date: string;
+  received_by?: string;
+  warehouse_notes?: string;
+  overall_status: 'pending' | 'accepted' | 'partial' | 'rejected';
+  total_ordered_qty: number;
+  total_received_qty: number;
+  total_accepted_qty: number;
+  total_rejected_qty: number;
+  created_at: string;
+  updated_at: string;
+  // Joined
+  items?: GRNItem[];
+}
+
+export interface GRNItem {
+  id: string;
+  grn_id: string;
+  po_item_id: string;
+  product_id: string;
+  ordered_qty: number;
+  received_qty: number;
+  accepted_qty: number;
+  rejected_qty: number;
+  rejection_reason?: string;
+  color_match_pct?: number;
+  pattern_match_pct?: number;
+  overall_match_pct?: number;
+  status: 'pending' | 'accepted' | 'short' | 'rejected';
+  notes?: string;
+  created_at: string;
+  // Joined from products
+  design_name?: string;
+  garment_type?: string;
+  photos?: GRNPhoto[];
+}
+
+export interface GRNPhoto {
+  id: string;
+  grn_item_id: string;
+  photo_uri: string;
+  photo_type: 'received' | 'comparison' | 'evidence';
+  created_at: string;
+}
+
+export interface LorryReceipt {
+  id: string;
+  po_id: string;
+  lr_number?: string;
+  transporter_name?: string;
+  dispatch_date?: string;
+  expected_delivery_date?: string;
+  actual_delivery_date?: string;
+  photo_uri?: string;
+  status: 'dispatched' | 'in_transit' | 'delivered';
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // Size templates per garment type
 export const SIZE_TEMPLATES: Record<string, string[]> = {
   'Shirt': ['S', 'M', 'L', 'XL', 'XXL'],

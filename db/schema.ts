@@ -145,4 +145,65 @@ export const CREATE_TABLES = [
     store_dispatch_days INTEGER DEFAULT 1,
     updated_at TEXT DEFAULT (datetime('now'))
   )`,
+
+  // GRN Records
+  `CREATE TABLE IF NOT EXISTS grn_records (
+    id TEXT PRIMARY KEY,
+    po_id TEXT NOT NULL REFERENCES purchase_orders(id),
+    grn_number TEXT NOT NULL,
+    received_date TEXT NOT NULL,
+    received_by TEXT,
+    warehouse_notes TEXT,
+    overall_status TEXT NOT NULL DEFAULT 'pending',
+    total_ordered_qty INTEGER DEFAULT 0,
+    total_received_qty INTEGER DEFAULT 0,
+    total_accepted_qty INTEGER DEFAULT 0,
+    total_rejected_qty INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  )`,
+
+  // GRN Line Items (one per PO item)
+  `CREATE TABLE IF NOT EXISTS grn_items (
+    id TEXT PRIMARY KEY,
+    grn_id TEXT NOT NULL REFERENCES grn_records(id),
+    po_item_id TEXT NOT NULL REFERENCES po_items(id),
+    product_id TEXT NOT NULL,
+    ordered_qty INTEGER NOT NULL,
+    received_qty INTEGER NOT NULL DEFAULT 0,
+    accepted_qty INTEGER NOT NULL DEFAULT 0,
+    rejected_qty INTEGER NOT NULL DEFAULT 0,
+    rejection_reason TEXT,
+    color_match_pct REAL,
+    pattern_match_pct REAL,
+    overall_match_pct REAL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
+
+  // GRN Photos (comparison evidence)
+  `CREATE TABLE IF NOT EXISTS grn_photos (
+    id TEXT PRIMARY KEY,
+    grn_item_id TEXT NOT NULL REFERENCES grn_items(id),
+    photo_uri TEXT NOT NULL,
+    photo_type TEXT NOT NULL DEFAULT 'received',
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
+
+  // Lorry Receipts
+  `CREATE TABLE IF NOT EXISTS lorry_receipts (
+    id TEXT PRIMARY KEY,
+    po_id TEXT NOT NULL REFERENCES purchase_orders(id),
+    lr_number TEXT,
+    transporter_name TEXT,
+    dispatch_date TEXT,
+    expected_delivery_date TEXT,
+    actual_delivery_date TEXT,
+    photo_uri TEXT,
+    status TEXT NOT NULL DEFAULT 'dispatched',
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  )`,
 ];

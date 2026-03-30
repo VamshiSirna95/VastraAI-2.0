@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { CREATE_TABLES } from './schema';
-import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig } from './types';
+import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt } from './types';
 
 // ── DB singleton ──────────────────────────────────────────────────────────────
 
@@ -603,5 +603,178 @@ export async function updateDeliveryConfig(config: Partial<DeliveryConfig>): Pro
   await db.runAsync(
     `UPDATE delivery_config SET ${setClause}, updated_at = datetime('now')`,
     values
+  );
+}
+
+// ── GRN ───────────────────────────────────────────────────────────────────────
+
+async function getNextGRNSequence(): Promise<number> {
+  const row = await getDb().getFirstAsync<{ cnt: number }>(
+    'SELECT COUNT(*) as cnt FROM grn_records'
+  );
+  return (row?.cnt ?? 0) + 1;
+}
+
+export async function createGRN(poId: string): Promise<string> {
+  const db = getDb();
+  const id = uuid();
+  const seq = await getNextGRNSequence();
+  const now = new Date();
+  const yymm = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const grn_number = `KMF/GRN/${yymm}/${String(seq).padStart(4, '0')}`;
+  const today = now.toISOString().slice(0, 10);
+
+  await db.runAsync(
+    `INSERT INTO grn_records (id, po_id, grn_number, received_date, overall_status,
+      total_ordered_qty, total_received_qty, total_accepted_qty, total_rejected_qty)
+     VALUES (?,?,?,?,'pending',0,0,0,0)`,
+    [id, poId, grn_number, today]
+  );
+
+  // Create grn_items for each po_item
+  const poItems = await getPOItems(poId);
+  for (const item of poItems) {
+    await db.runAsync(
+      `INSERT INTO grn_items (id, grn_id, po_item_id, product_id, ordered_qty,
+        received_qty, accepted_qty, rejected_qty, status)
+       VALUES (?,?,?,?,?,0,0,0,'pending')`,
+      [uuid(), id, item.id, item.product_id, item.total_qty]
+    );
+  }
+
+  // Set total_ordered_qty
+  const totalOrdered = poItems.reduce((s, i) => s + i.total_qty, 0);
+  await db.runAsync('UPDATE grn_records SET total_ordered_qty = ? WHERE id = ?', [totalOrdered, id]);
+
+  return id;
+}
+
+async function getGRNItems(grnId: string): Promise<GRNItem[]> {
+  const db = getDb();
+  const rows = await db.getAllAsync<GRNItem>(
+    `SELECT gi.*, p.design_name, p.garment_type
+     FROM grn_items gi
+     LEFT JOIN products p ON gi.product_id = p.id
+     WHERE gi.grn_id = ?
+     ORDER BY gi.created_at ASC`,
+    [grnId]
+  );
+  for (const item of rows) {
+    item.photos = await db.getAllAsync<GRNPhoto>(
+      'SELECT * FROM grn_photos WHERE grn_item_id = ? ORDER BY created_at ASC',
+      [item.id]
+    );
+  }
+  return rows;
+}
+
+export async function getGRN(grnId: string): Promise<GRNRecord | null> {
+  const grn = await getDb().getFirstAsync<GRNRecord>(
+    'SELECT * FROM grn_records WHERE id = ?', [grnId]
+  );
+  if (!grn) return null;
+  grn.items = await getGRNItems(grnId);
+  return grn;
+}
+
+export async function getGRNByPO(poId: string): Promise<GRNRecord | null> {
+  const grn = await getDb().getFirstAsync<GRNRecord>(
+    'SELECT * FROM grn_records WHERE po_id = ? ORDER BY created_at DESC LIMIT 1',
+    [poId]
+  );
+  if (!grn) return null;
+  grn.items = await getGRNItems(grn.id);
+  return grn;
+}
+
+export async function updateGRNItem(itemId: string, data: Partial<GRNItem>): Promise<void> {
+  const db = getDb();
+  const excluded = ['id', 'grn_id', 'po_item_id', 'product_id', 'created_at', 'design_name', 'garment_type', 'photos'];
+  const fields = Object.keys(data).filter((k) => !excluded.includes(k));
+  if (fields.length === 0) return;
+  const setClause = fields.map((f) => `${f} = ?`).join(', ');
+  const values = fields.map((f) => (data as Record<string, unknown>)[f] ?? null) as (string | number | null)[];
+  await db.runAsync(`UPDATE grn_items SET ${setClause} WHERE id = ?`, [...values, itemId]);
+}
+
+export async function finalizeGRN(grnId: string): Promise<void> {
+  const db = getDb();
+  const items = await db.getAllAsync<{
+    ordered_qty: number; received_qty: number; accepted_qty: number; rejected_qty: number;
+  }>('SELECT ordered_qty, received_qty, accepted_qty, rejected_qty FROM grn_items WHERE grn_id = ?', [grnId]);
+
+  const totalOrdered = items.reduce((s, i) => s + i.ordered_qty, 0);
+  const totalReceived = items.reduce((s, i) => s + i.received_qty, 0);
+  const totalAccepted = items.reduce((s, i) => s + i.accepted_qty, 0);
+  const totalRejected = items.reduce((s, i) => s + i.rejected_qty, 0);
+
+  let overall_status: GRNRecord['overall_status'];
+  if (totalRejected === 0 && totalAccepted >= totalOrdered) {
+    overall_status = 'accepted';
+  } else if (totalRejected > 0 && totalAccepted === 0) {
+    overall_status = 'rejected';
+  } else {
+    overall_status = 'partial';
+  }
+
+  await db.runAsync(
+    `UPDATE grn_records SET overall_status=?, total_ordered_qty=?, total_received_qty=?,
+      total_accepted_qty=?, total_rejected_qty=?, updated_at=datetime('now') WHERE id=?`,
+    [overall_status, totalOrdered, totalReceived, totalAccepted, totalRejected, grnId]
+  );
+}
+
+export async function addGRNPhoto(grnItemId: string, photoUri: string, photoType = 'received'): Promise<string> {
+  const id = uuid();
+  await getDb().runAsync(
+    'INSERT INTO grn_photos (id, grn_item_id, photo_uri, photo_type) VALUES (?,?,?,?)',
+    [id, grnItemId, photoUri, photoType]
+  );
+  return id;
+}
+
+export async function getGRNPendingCount(): Promise<number> {
+  const row = await getDb().getFirstAsync<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM grn_records WHERE overall_status = 'pending'`
+  );
+  return row?.cnt ?? 0;
+}
+
+// ── Lorry Receipts ────────────────────────────────────────────────────────────
+
+export async function createLR(poId: string, data: Partial<LorryReceipt>): Promise<string> {
+  const db = getDb();
+  const id = uuid();
+  await db.runAsync(
+    `INSERT INTO lorry_receipts (id, po_id, lr_number, transporter_name, dispatch_date,
+      expected_delivery_date, actual_delivery_date, photo_uri, status, notes)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    [
+      id, poId,
+      data.lr_number ?? null, data.transporter_name ?? null, data.dispatch_date ?? null,
+      data.expected_delivery_date ?? null, data.actual_delivery_date ?? null,
+      data.photo_uri ?? null, data.status ?? 'dispatched', data.notes ?? null,
+    ]
+  );
+  return id;
+}
+
+export async function getLRByPO(poId: string): Promise<LorryReceipt | null> {
+  return getDb().getFirstAsync<LorryReceipt>(
+    'SELECT * FROM lorry_receipts WHERE po_id = ? ORDER BY created_at DESC LIMIT 1',
+    [poId]
+  );
+}
+
+export async function updateLR(lrId: string, data: Partial<LorryReceipt>): Promise<void> {
+  const db = getDb();
+  const excluded = ['id', 'po_id', 'created_at'];
+  const fields = Object.keys(data).filter((k) => !excluded.includes(k));
+  if (fields.length === 0) return;
+  const setClause = fields.map((f) => `${f} = ?`).join(', ');
+  const values = fields.map((f) => (data as Record<string, unknown>)[f] ?? null) as (string | number | null)[];
+  await db.runAsync(
+    `UPDATE lorry_receipts SET ${setClause}, updated_at=datetime('now') WHERE id=?`,
+    [...values, lrId]
   );
 }
