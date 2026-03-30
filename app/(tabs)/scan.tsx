@@ -389,6 +389,16 @@ export default function ScanScreen() {
       await FileSystem.copyAsync({ from: photoUri, to: destUri });
       await addProductPhoto(productId, destUri, photoType, true);
 
+      // Tag mode → tag entry screen
+      if (activeMode === 'Tag') {
+        setAnalyzing(false);
+        router.push({
+          pathname: '/product/tag-entry',
+          params: { productId, photoUri: destUri },
+        });
+        return;
+      }
+
       const result: AIDetectionResult = await detectAttributes(destUri);
 
       const attrs: string[] = [];
