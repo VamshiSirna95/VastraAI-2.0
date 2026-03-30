@@ -757,6 +757,10 @@ const SIZE_COLS = ['size_s', 'size_m', 'size_l', 'size_xl', 'size_xxl', 'size_fr
 function buildGRNSizeData(item: POItem & { garment_type?: string }): GRNSizeData {
   const g = (item as unknown as Record<string, unknown>).garment_type as string | undefined ?? 'default';
   const labels = SIZE_TEMPLATES[g] ?? SIZE_TEMPLATES['default'];
+  // For Free Size garments (Saree, Dupatta, etc.) the qty is stored in size_free, NOT size_s
+  if (labels.length === 1 && labels[0] === 'Free') {
+    return { Free: { ordered: item.size_free ?? 0, received: 0, accepted: 0, rejected: 0 } };
+  }
   const cols = [item.size_s, item.size_m, item.size_l, item.size_xl, item.size_xxl, item.size_free];
   const data: GRNSizeData = {};
   labels.forEach((lbl, idx) => {
