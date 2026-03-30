@@ -11,7 +11,7 @@ import {
   getPOById, updatePO, getLRByPO, getGRNByPO, createGRN, getGRNPendingTotal, updateGRNItem,
   softDeletePO, getVendorById,
 } from '../../db/database';
-import type { PurchaseOrder, POItem, LorryReceipt, GRNRecord } from '../../db/types';
+import type { PurchaseOrder, POItem, LorryReceipt, GRNRecord, Vendor } from '../../db/types';
 import { DeliveryCard } from '../../components/DeliveryCard';
 import { calculateDelivery, type DeliverySchedule } from '../../services/delivery';
 import { generatePODocument } from '../../services/poDocument';
@@ -72,6 +72,7 @@ export default function PODetailScreen() {
   const [deliverySchedule, setDeliverySchedule] = useState<DeliverySchedule | null>(null);
   const [grnPending, setGrnPending] = useState<{ totalOrdered: number; totalReceived: number; totalPending: number; allReceived: boolean } | null>(null);
   const [generatingDoc, setGeneratingDoc] = useState(false);
+  const [vendor, setVendor] = useState<Vendor | null>(null);
 
   // Cancel remaining modal state
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -92,6 +93,10 @@ export default function PODetailScreen() {
     setLr(lrData);
     setGrn(grnData);
     setDeliverySchedule(sched);
+    if (data?.vendor_id) {
+      const v = await getVendorById(data.vendor_id);
+      setVendor(v);
+    }
     if (data?.status === 'received' && grnData) {
       const pending = await getGRNPendingTotal(id);
       setGrnPending(pending);
@@ -265,7 +270,23 @@ export default function PODetailScreen() {
         {/* PO Info */}
         <View style={styles.glassCard}>
           <Text style={styles.sectionLabel}>PO INFO</Text>
-          <InfoRow label="Vendor" value={po.vendor_name ?? po.vendor_id} />
+          {/* Vendor row — tappable link */}
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Vendor</Text>
+            <TouchableOpacity onPress={() => router.push(`/vendors/${po.vendor_id}` as never)}>
+              <Text style={[styles.infoValue, { color: colors.teal }]}>
+                {po.vendor_name ?? po.vendor_id}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {vendor?.phone ? (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Phone</Text>
+              <TouchableOpacity onPress={() => Linking.openURL(`tel:${vendor.phone}`)}>
+                <Text style={[styles.infoValue, { color: colors.blue }]}>{vendor.phone}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
           <InfoRow label="Created" value={new Date(po.created_at).toLocaleDateString('en-IN')} />
           {po.delivery_date && <InfoRow label="Delivery Date" value={po.delivery_date} />}
           {po.notes ? (

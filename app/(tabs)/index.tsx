@@ -12,7 +12,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path, Polyline } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import ModuleCard, { type PatternType, type MetricData } from '../../components/ModuleCard';
-import { getPOs, getGRNPendingCount } from '../../db/database';
+import { getPOs, getGRNPendingCount, getVendorCount } from '../../db/database';
 import { calculateDelivery } from '../../services/delivery';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -186,13 +186,15 @@ export default function HomeScreen() {
   const [activePOCount, setActivePOCount] = useState(0);
   const [criticalPOCount, setCriticalPOCount] = useState(0);
   const [grnPendingCount, setGrnPendingCount] = useState(0);
+  const [vendorCount, setVendorCount] = useState(0);
 
   useFocusEffect(useCallback(() => {
     const loadData = async () => {
-      const [allPOs, schedule, grnPending] = await Promise.all([
+      const [allPOs, schedule, grnPending, vCount] = await Promise.all([
         getPOs(),
         calculateDelivery(0, 1),
         getGRNPendingCount(),
+        getVendorCount(),
       ]);
       // Active POs = not closed, not deleted
       const activeCount = allPOs.filter(
@@ -200,6 +202,7 @@ export default function HomeScreen() {
       ).length;
       setActivePOCount(activeCount);
       setGrnPendingCount(grnPending);
+      setVendorCount(vCount);
       if (schedule.urgency === 'CRITICAL') {
         const critCount = allPOs.filter(
           (p) => p.status === 'draft' || p.status === 'sent'
@@ -266,12 +269,6 @@ export default function HomeScreen() {
         {/* ── Stats Row ────────────────────────────────────────────── */}
         <View style={styles.statsRow}>
           <StatCard
-            value="847"
-            label="Tagged"
-            color={colors.teal}
-            sparkPoints="0,14 10,12 20,10 30,11 40,8 50,6 60,4"
-          />
-          <StatCard
             value={String(activePOCount)}
             label="Active POs"
             color={colors.amber}
@@ -282,6 +279,12 @@ export default function HomeScreen() {
             label="GRN due"
             color={colors.red}
             sparkPoints="0,12 10,10 20,13 30,9 40,12 50,8 60,10"
+          />
+          <StatCard
+            value={String(vendorCount)}
+            label="Vendors"
+            color={colors.blue}
+            sparkPoints="0,10 10,10 20,9 30,9 40,8 50,8 60,8"
           />
         </View>
 
@@ -344,6 +347,49 @@ export default function HomeScreen() {
                   stroke={colors.purple}
                   strokeWidth={2}
                   strokeLinecap="round"
+                />
+              </Svg>
+            }
+          />
+          <QuickAction
+            label="Vendors"
+            color={colors.blue}
+            onPress={() => router.push('/vendors')}
+            icon={
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                <Path
+                  d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"
+                  stroke={colors.blue}
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <Path
+                  d="M9 11a4 4 0 100-8 4 4 0 000 8z"
+                  stroke={colors.blue}
+                  strokeWidth={2}
+                />
+                <Path
+                  d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"
+                  stroke={colors.blue}
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                />
+              </Svg>
+            }
+          />
+          <QuickAction
+            label="Reports"
+            color={colors.purpleLight}
+            onPress={() => router.push('/reports')}
+            icon={
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                <Path
+                  d="M18 20V10M12 20V4M6 20v-6"
+                  stroke={colors.purpleLight}
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 />
               </Svg>
             }

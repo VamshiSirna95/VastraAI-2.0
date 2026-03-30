@@ -76,8 +76,17 @@ function buildHtml(
   }).join('');
 
   const vendorName = vendor?.name ?? po.vendor_id;
-  const vendorArea = vendor?.area ?? '';
-  const tripNote = trip ? `<p>Trip: ${trip.name}</p>` : '';
+  const vendorLines: string[] = [];
+  if (vendor?.contact_person) vendorLines.push(vendor.contact_person);
+  if (vendor?.address_line1) vendorLines.push(vendor.address_line1);
+  if (vendor?.address_line2) vendorLines.push(vendor.address_line2);
+  const cityLine = [vendor?.city, vendor?.state, vendor?.pincode].filter(Boolean).join(', ');
+  if (cityLine) vendorLines.push(cityLine);
+  else if (vendor?.area) vendorLines.push(vendor.area);
+  if (vendor?.phone) vendorLines.push(`Ph: ${vendor.phone}`);
+  if (vendor?.gstin) vendorLines.push(`GSTIN: ${vendor.gstin}`);
+  const vendorDetail = vendorLines.join('<br/>');
+  const tripMeta = trip ? `<div class="meta-row"><span class="meta-label">Trip</span><span class="meta-value">${trip.name}</span></div>` : '';
   const notesHtml = po.notes
     ? `<div class="notes-section"><strong>Notes:</strong><br/>${po.notes}</div>`
     : '';
@@ -136,7 +145,7 @@ function buildHtml(
 
 <div class="meta-row"><span class="meta-label">PO Number</span><span class="meta-value">${po.po_number}</span></div>
 <div class="meta-row"><span class="meta-label">Date</span><span class="meta-value">${dateStr}</span></div>
-${trip ? `<div class="meta-row"><span class="meta-label">Trip</span><span class="meta-value">${trip.name}</span></div>` : ''}
+${tripMeta}
 
 <hr class="divider"/>
 
@@ -149,7 +158,7 @@ ${trip ? `<div class="meta-row"><span class="meta-label">Trip</span><span class=
   <div class="party">
     <div class="party-title">To (Vendor)</div>
     <div class="party-name">${vendorName}</div>
-    <div class="party-detail">${vendorArea}</div>
+    <div class="party-detail">${vendorDetail}</div>
   </div>
 </div>
 
@@ -168,7 +177,6 @@ ${trip ? `<div class="meta-row"><span class="meta-label">Trip</span><span class=
 </div>
 
 ${notesHtml}
-${tripNote}
 
 <div class="terms-section">
   <div class="terms-title">Terms</div>

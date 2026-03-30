@@ -24,18 +24,37 @@ export async function seedDemoData(): Promise<void> {
     name: 'Ratan Creation',
     contact_person: 'Ratan Joshi',
     phone: '9876543210',
+    alt_phone: '9876543211',
+    email: 'ratan@ratancreation.com',
     area: 'Surat',
+    city: 'Surat',
+    state: 'Gujarat',
+    pincode: '395003',
+    address_line1: 'Shop 14, Udhna Textile Market',
     speciality: 'Kurtas, Kurtis',
+    gstin: '24ABCDE1234F1Z5',
+    payment_terms: '30 days',
+    avg_lead_days: 12,
     rank: 'S+',
+    is_active: 1,
   });
 
   const v2 = await createVendor({
     name: 'Shivali Iconic',
     contact_person: 'Shivali Shah',
     phone: '9123456789',
+    email: 'shivali@shivaliiconic.in',
     area: 'Hyderabad',
+    city: 'Hyderabad',
+    state: 'Telangana',
+    pincode: '500012',
+    address_line1: '42 Begum Bazaar',
     speciality: 'Sarees, Lehengas',
+    gstin: '36FGHIJ5678K2L6',
+    payment_terms: 'Advance',
+    avg_lead_days: 7,
     rank: 'A',
+    is_active: 1,
   });
 
   const v3 = await createVendor({
@@ -43,8 +62,15 @@ export async function seedDemoData(): Promise<void> {
     contact_person: 'Mukesh Verma',
     phone: '9001234567',
     area: 'Jaipur',
+    city: 'Jaipur',
+    state: 'Rajasthan',
+    pincode: '302001',
+    address_line1: '8, Nehru Bazaar',
     speciality: 'Shirts, Trousers',
+    payment_terms: 'On delivery',
+    avg_lead_days: 15,
     rank: 'B',
+    is_active: 1,
   });
 
   // ── Products ───────────────────────────────────────────────────────────────

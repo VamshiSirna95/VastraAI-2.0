@@ -32,6 +32,25 @@ async function runMigrations(): Promise<void> {
   await addCol('purchase_orders', 'document_uri', 'TEXT');
   // grn_items new columns
   await addCol('grn_items', 'size_data_json', 'TEXT');
+  // vendors new columns (V9)
+  await addCol('vendors', 'alt_phone', 'TEXT');
+  await addCol('vendors', 'email', 'TEXT');
+  await addCol('vendors', 'city', 'TEXT');
+  await addCol('vendors', 'state', 'TEXT');
+  await addCol('vendors', 'pincode', 'TEXT');
+  await addCol('vendors', 'address_line1', 'TEXT');
+  await addCol('vendors', 'address_line2', 'TEXT');
+  await addCol('vendors', 'gstin', 'TEXT');
+  await addCol('vendors', 'pan', 'TEXT');
+  await addCol('vendors', 'bank_name', 'TEXT');
+  await addCol('vendors', 'bank_account', 'TEXT');
+  await addCol('vendors', 'bank_ifsc', 'TEXT');
+  await addCol('vendors', 'payment_terms', 'TEXT');
+  await addCol('vendors', 'rating', 'REAL DEFAULT 0');
+  await addCol('vendors', 'avg_lead_days', 'INTEGER DEFAULT 0');
+  await addCol('vendors', 'total_orders', 'INTEGER DEFAULT 0');
+  await addCol('vendors', 'total_value', 'REAL DEFAULT 0');
+  await addCol('vendors', 'is_active', 'INTEGER DEFAULT 1');
 }
 
 export function getDb(): SQLite.SQLiteDatabase {
@@ -247,35 +266,103 @@ export async function createVendor(vendor: Partial<Vendor>): Promise<string> {
   const db = getDb();
   const id = vendor.id ?? uuid();
   await db.runAsync(
-    `INSERT INTO vendors (id, name, contact_person, phone, area, speciality, rank, notes)
-     VALUES (?,?,?,?,?,?,?,?)`,
+    `INSERT INTO vendors (
+       id, name, contact_person, phone, alt_phone, email,
+       area, city, state, pincode, address_line1, address_line2,
+       speciality, gstin, pan, bank_name, bank_account, bank_ifsc,
+       payment_terms, rank, rating, avg_lead_days, is_active, notes
+     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       id,
       vendor.name ?? 'Unknown',
       vendor.contact_person ?? null,
       vendor.phone ?? null,
+      vendor.alt_phone ?? null,
+      vendor.email ?? null,
       vendor.area ?? null,
+      vendor.city ?? null,
+      vendor.state ?? null,
+      vendor.pincode ?? null,
+      vendor.address_line1 ?? null,
+      vendor.address_line2 ?? null,
       vendor.speciality ?? null,
+      vendor.gstin ?? null,
+      vendor.pan ?? null,
+      vendor.bank_name ?? null,
+      vendor.bank_account ?? null,
+      vendor.bank_ifsc ?? null,
+      vendor.payment_terms ?? null,
       vendor.rank ?? 'B',
+      vendor.rating ?? 0,
+      vendor.avg_lead_days ?? 0,
+      vendor.is_active ?? 1,
       vendor.notes ?? null,
     ]
   );
   return id;
 }
 
-export async function getVendors(search?: string): Promise<Vendor[]> {
+export async function updateVendor(id: string, updates: Partial<Vendor>): Promise<void> {
   const db = getDb();
+  const excluded = ['id', 'created_at'];
+  const fields = Object.keys(updates).filter((k) => !excluded.includes(k));
+  if (fields.length === 0) return;
+  const setClause = fields.map((f) => `${f} = ?`).join(', ');
+  const values = fields.map((f) => (updates as Record<string, unknown>)[f] ?? null) as (string | number | null)[];
+  await db.runAsync(
+    `UPDATE vendors SET ${setClause}, updated_at = datetime('now') WHERE id = ?`,
+    [...values, id]
+  );
+}
+
+export async function getVendors(search?: string, activeOnly = false): Promise<Vendor[]> {
+  const db = getDb();
+  const conditions: string[] = [];
+  const params: string[] = [];
+  if (activeOnly) { conditions.push('(is_active = 1 OR is_active IS NULL)'); }
   if (search) {
-    return db.getAllAsync<Vendor>(
-      'SELECT * FROM vendors WHERE name LIKE ? OR area LIKE ? ORDER BY rank, name',
-      [`%${search}%`, `%${search}%`]
-    );
+    conditions.push('(name LIKE ? OR area LIKE ? OR city LIKE ? OR speciality LIKE ?)');
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
   }
-  return db.getAllAsync<Vendor>('SELECT * FROM vendors ORDER BY rank, name');
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  return db.getAllAsync<Vendor>(
+    `SELECT * FROM vendors ${where} ORDER BY rank, name`,
+    params
+  );
 }
 
 export async function getVendorById(id: string): Promise<Vendor | null> {
   return getDb().getFirstAsync<Vendor>('SELECT * FROM vendors WHERE id = ?', [id]);
+}
+
+export async function getVendorCount(): Promise<number> {
+  const row = await getDb().getFirstAsync<{ cnt: number }>(
+    'SELECT COUNT(*) as cnt FROM vendors WHERE is_active = 1 OR is_active IS NULL'
+  );
+  return row?.cnt ?? 0;
+}
+
+export async function deactivateVendor(id: string): Promise<void> {
+  await getDb().runAsync(
+    `UPDATE vendors SET is_active = 0, updated_at = datetime('now') WHERE id = ?`, [id]
+  );
+}
+
+export async function reactivateVendor(id: string): Promise<void> {
+  await getDb().runAsync(
+    `UPDATE vendors SET is_active = 1, updated_at = datetime('now') WHERE id = ?`, [id]
+  );
+}
+
+export async function updateVendorStats(vendorId: string): Promise<void> {
+  await getDb().runAsync(
+    `UPDATE vendors SET
+       total_orders = (SELECT COUNT(*) FROM purchase_orders WHERE vendor_id = ? AND (is_deleted != 1 OR is_deleted IS NULL)),
+       total_value  = (SELECT COALESCE(SUM(total_value), 0) FROM purchase_orders WHERE vendor_id = ? AND (is_deleted != 1 OR is_deleted IS NULL)),
+       updated_at   = datetime('now')
+     WHERE id = ?`,
+    [vendorId, vendorId, vendorId]
+  );
 }
 
 // ── Custom Attributes ─────────────────────────────────────────────────────────
@@ -910,4 +997,105 @@ export async function updateLR(lrId: string, data: Partial<LorryReceipt>): Promi
     `UPDATE lorry_receipts SET ${setClause}, updated_at=datetime('now') WHERE id=?`,
     [...values, lrId]
   );
+}
+
+// ── Reports ───────────────────────────────────────────────────────────────────
+
+export interface POSummaryReport {
+  total: number;
+  totalValue: number;
+  byStatus: { status: string; count: number; value: number }[];
+  topVendors: { vendor_name: string; count: number; value: number }[];
+}
+
+export async function getPOSummaryReport(): Promise<POSummaryReport> {
+  const db = getDb();
+  const meta = await db.getFirstAsync<{ total: number; totalValue: number }>(
+    `SELECT COUNT(*) as total, COALESCE(SUM(total_value),0) as totalValue
+     FROM purchase_orders WHERE is_deleted != 1 OR is_deleted IS NULL`
+  );
+  const byStatus = await db.getAllAsync<{ status: string; count: number; value: number }>(
+    `SELECT status, COUNT(*) as count, COALESCE(SUM(total_value),0) as value
+     FROM purchase_orders WHERE is_deleted != 1 OR is_deleted IS NULL
+     GROUP BY status ORDER BY count DESC`
+  );
+  const topVendors = await db.getAllAsync<{ vendor_name: string; count: number; value: number }>(
+    `SELECT v.name as vendor_name, COUNT(po.id) as count, COALESCE(SUM(po.total_value),0) as value
+     FROM purchase_orders po
+     LEFT JOIN vendors v ON po.vendor_id = v.id
+     WHERE po.is_deleted != 1 OR po.is_deleted IS NULL
+     GROUP BY po.vendor_id ORDER BY value DESC LIMIT 10`
+  );
+  return {
+    total: meta?.total ?? 0,
+    totalValue: meta?.totalValue ?? 0,
+    byStatus,
+    topVendors,
+  };
+}
+
+export interface GRNSummaryReport {
+  totalGRNs: number;
+  totalOrdered: number;
+  totalReceived: number;
+  totalAccepted: number;
+  totalRejected: number;
+  acceptanceRate: number;
+  byVendor: { vendor_name: string; ordered: number; accepted: number; acceptance_rate: number }[];
+}
+
+export async function getGRNSummaryReport(): Promise<GRNSummaryReport> {
+  const db = getDb();
+  const totals = await db.getFirstAsync<{
+    cnt: number; ordered: number; received: number; accepted: number; rejected: number;
+  }>(
+    `SELECT COUNT(*) as cnt,
+     COALESCE(SUM(total_ordered_qty),0) as ordered,
+     COALESCE(SUM(total_received_qty),0) as received,
+     COALESCE(SUM(total_accepted_qty),0) as accepted,
+     COALESCE(SUM(total_rejected_qty),0) as rejected
+     FROM grn_records`
+  );
+  const byVendor = await db.getAllAsync<{ vendor_name: string; ordered: number; accepted: number }>(
+    `SELECT v.name as vendor_name,
+     COALESCE(SUM(gr.total_ordered_qty),0) as ordered,
+     COALESCE(SUM(gr.total_accepted_qty),0) as accepted
+     FROM grn_records gr
+     LEFT JOIN purchase_orders po ON gr.po_id = po.id
+     LEFT JOIN vendors v ON po.vendor_id = v.id
+     GROUP BY po.vendor_id ORDER BY ordered DESC LIMIT 10`
+  );
+  const acceptanceRate = totals?.ordered
+    ? Math.round((totals.accepted / totals.ordered) * 100)
+    : 0;
+  return {
+    totalGRNs: totals?.cnt ?? 0,
+    totalOrdered: totals?.ordered ?? 0,
+    totalReceived: totals?.received ?? 0,
+    totalAccepted: totals?.accepted ?? 0,
+    totalRejected: totals?.rejected ?? 0,
+    acceptanceRate,
+    byVendor: byVendor.map((r) => ({
+      ...r,
+      acceptance_rate: r.ordered ? Math.round((r.accepted / r.ordered) * 100) : 0,
+    })),
+  };
+}
+
+export interface TripBudgetReport {
+  trips: { name: string; budget: number; spent: number; utilization: number; po_count: number }[];
+}
+
+export async function getTripBudgetReport(): Promise<TripBudgetReport> {
+  const rows = await getDb().getAllAsync<{ name: string; budget: number; spent: number; po_count: number }>(
+    `SELECT pt.name, pt.budget, pt.spent,
+     (SELECT COUNT(*) FROM purchase_orders WHERE trip_id = pt.id AND (is_deleted != 1 OR is_deleted IS NULL)) as po_count
+     FROM purchase_trips pt ORDER BY pt.created_at DESC`
+  );
+  return {
+    trips: rows.map((r) => ({
+      ...r,
+      utilization: r.budget > 0 ? Math.round((r.spent / r.budget) * 100) : 0,
+    })),
+  };
 }
