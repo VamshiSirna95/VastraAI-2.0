@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { View, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -12,8 +13,13 @@ import {
 } from '@expo-google-fonts/inter';
 import { initDatabase } from '../db/database';
 import { seedDemoData } from '../db/seed';
+import AuroraBackground from '../components/AuroraBackground';
 
 SplashScreen.preventAutoHideAsync();
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#000000' },
+});
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -44,9 +50,10 @@ export default function RootLayout() {
   if (!fontsLoaded || !dbReady) return null;
 
   return (
-    <>
-      <Stack screenOptions={{ headerShown: false }} />
+    <View style={styles.root}>
+      <AuroraBackground />
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }} />
       <StatusBar style="light" />
-    </>
+    </View>
   );
 }
