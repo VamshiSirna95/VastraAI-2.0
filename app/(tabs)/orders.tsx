@@ -348,6 +348,22 @@ export default function OrdersScreen() {
         </>
       ) : (
         <>
+          {/* ── Trips pill ─── */}
+          <View style={styles.posToolbar}>
+            <TouchableOpacity
+              style={styles.tripsBtn}
+              onPress={() => router.push('/po/trips')}
+              activeOpacity={0.75}
+            >
+              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                <Path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke={colors.amber} strokeWidth={2} strokeLinecap="round" />
+                <Circle cx={9} cy={7} r={4} stroke={colors.amber} strokeWidth={2} />
+                <Path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke={colors.amber} strokeWidth={2} strokeLinecap="round" />
+              </Svg>
+              <Text style={styles.tripsBtnText}>Trips</Text>
+            </TouchableOpacity>
+          </View>
+
           {/* ── PO list ─── */}
           <FlatList
             data={pos}
@@ -649,6 +665,30 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#5DCAA5',
+    fontFamily: 'Inter_700Bold',
+  },
+
+  posToolbar: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingBottom: 10,
+    gap: 8,
+  },
+  tripsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(239,159,39,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,159,39,0.25)',
+  },
+  tripsBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#EF9F27',
     fontFamily: 'Inter_700Bold',
   },
 

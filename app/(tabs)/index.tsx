@@ -12,7 +12,8 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path, Polyline } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import ModuleCard, { type PatternType, type MetricData } from '../../components/ModuleCard';
-import { getPOCount } from '../../db/database';
+import { getPOCount, getPOs } from '../../db/database';
+import { calculateDelivery } from '../../services/delivery';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // 20px padding on each side + 12px gap between 2 columns
@@ -182,10 +183,27 @@ const modules: ModuleData[] = [
 
 export default function HomeScreen() {
   const router = useRouter();
-  const [activePOCount, setActivePOCount] = useState(12);
+  const [activePOCount, setActivePOCount] = useState(0);
+  const [criticalPOCount, setCriticalPOCount] = useState(0);
 
   useFocusEffect(useCallback(() => {
-    getPOCount().then(setActivePOCount);
+    const loadData = async () => {
+      const [count, allPOs, schedule] = await Promise.all([
+        getPOCount(),
+        getPOs(),
+        calculateDelivery(0, 1),
+      ]);
+      setActivePOCount(count);
+      if (schedule.urgency === 'CRITICAL') {
+        const critCount = allPOs.filter(
+          (p) => p.status === 'draft' || p.status === 'sent'
+        ).length;
+        setCriticalPOCount(critCount);
+      } else {
+        setCriticalPOCount(0);
+      }
+    };
+    loadData();
   }, []));
 
   return (
@@ -204,6 +222,23 @@ export default function HomeScreen() {
           <Text style={[styles.heroTitle, { color: colors.teal }]}>Sell smarter.</Text>
           <Text style={styles.heroSubtitle}>K.M. Fashions — 7 stores active</Text>
         </View>
+
+        {/* ── Critical Alert Banner ────────────────────────────────── */}
+        {criticalPOCount > 0 && (
+          <TouchableOpacity
+            style={styles.criticalBanner}
+            onPress={() => router.push('/(tabs)/orders')}
+            activeOpacity={0.8}
+          >
+            <View style={styles.criticalDot} />
+            <Text style={styles.criticalBannerText}>
+              {criticalPOCount} PO{criticalPOCount > 1 ? 's' : ''} need immediate attention
+            </Text>
+            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+              <Path d="M9 18l6-6-6-6" stroke="#E24B4A" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          </TouchableOpacity>
+        )}
 
         {/* ── Stats Row ────────────────────────────────────────────── */}
         <View style={styles.statsRow}>
@@ -393,6 +428,34 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.3)',
     marginTop: 8,
     fontFamily: 'Inter_400Regular',
+  },
+
+  // Critical alert banner
+  criticalBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 20,
+    marginBottom: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(226,75,74,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(226,75,74,0.25)',
+    borderRadius: 12,
+  },
+  criticalDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E24B4A',
+  },
+  criticalBannerText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#E24B4A',
+    fontFamily: 'Inter_700Bold',
   },
 
   // Stats
