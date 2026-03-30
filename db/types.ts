@@ -179,6 +179,8 @@ export interface DeliveryConfig {
 export interface GRNSizeEntry {
   ordered: number;
   received: number;
+  accepted: number;
+  rejected: number;
 }
 
 export type GRNSizeData = Record<string, GRNSizeEntry>;

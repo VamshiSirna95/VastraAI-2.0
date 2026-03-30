@@ -673,7 +673,7 @@ function buildGRNSizeData(item: POItem & { garment_type?: string }): GRNSizeData
   const cols = [item.size_s, item.size_m, item.size_l, item.size_xl, item.size_xxl, item.size_free];
   const data: GRNSizeData = {};
   labels.forEach((lbl, idx) => {
-    data[lbl] = { ordered: cols[idx] ?? 0, received: 0 };
+    data[lbl] = { ordered: cols[idx] ?? 0, received: 0, accepted: 0, rejected: 0 };
   });
   return data;
 }
@@ -770,9 +770,11 @@ export async function updateGRNItem(itemId: string, data: Partial<GRNItem>): Pro
   // If size_data provided, serialize to JSON and recalculate totals from size sums
   const writeData: Record<string, unknown> = { ...data };
   if (data.size_data) {
-    const totalReceived = Object.values(data.size_data).reduce((s, e) => s + e.received, 0);
+    const entries = Object.values(data.size_data);
     writeData.size_data_json = JSON.stringify(data.size_data);
-    writeData.received_qty = totalReceived;
+    writeData.received_qty = entries.reduce((s, e) => s + e.received, 0);
+    writeData.accepted_qty = entries.reduce((s, e) => s + e.accepted, 0);
+    writeData.rejected_qty = entries.reduce((s, e) => s + e.rejected, 0);
     delete writeData.size_data;
   }
   const excluded = ['id', 'grn_id', 'po_item_id', 'product_id', 'created_at', 'design_name', 'garment_type', 'photos'];
@@ -786,19 +788,32 @@ export async function updateGRNItem(itemId: string, data: Partial<GRNItem>): Pro
 export async function finalizeGRN(grnId: string): Promise<void> {
   const db = getDb();
   const items = await db.getAllAsync<{
-    ordered_qty: number; received_qty: number; accepted_qty: number; rejected_qty: number;
-  }>('SELECT ordered_qty, received_qty, accepted_qty, rejected_qty FROM grn_items WHERE grn_id = ?', [grnId]);
+    ordered_qty: number; received_qty: number; accepted_qty: number; rejected_qty: number; size_data_json: string | null;
+  }>('SELECT ordered_qty, received_qty, accepted_qty, rejected_qty, size_data_json FROM grn_items WHERE grn_id = ?', [grnId]);
 
   const totalOrdered = items.reduce((s, i) => s + i.ordered_qty, 0);
   const totalReceived = items.reduce((s, i) => s + i.received_qty, 0);
   const totalAccepted = items.reduce((s, i) => s + i.accepted_qty, 0);
   const totalRejected = items.reduce((s, i) => s + i.rejected_qty, 0);
 
+  // Calculate total pending from size-level data
+  let totalPending = 0;
+  for (const item of items) {
+    if (item.size_data_json) {
+      const sizeData = JSON.parse(item.size_data_json) as GRNSizeData;
+      for (const entry of Object.values(sizeData)) {
+        totalPending += Math.max(0, entry.ordered - entry.received);
+      }
+    } else {
+      totalPending += Math.max(0, item.ordered_qty - item.received_qty);
+    }
+  }
+
   let overall_status: GRNRecord['overall_status'];
-  if (totalRejected === 0 && totalAccepted >= totalOrdered) {
+  if (totalPending === 0 && totalRejected === 0) {
     overall_status = 'accepted';
-  } else if (totalRejected > 0 && totalAccepted === 0) {
-    overall_status = 'rejected';
+  } else if (totalPending === 0 && totalRejected > 0) {
+    overall_status = 'partial';
   } else {
     overall_status = 'partial';
   }
@@ -808,6 +823,38 @@ export async function finalizeGRN(grnId: string): Promise<void> {
       total_accepted_qty=?, total_rejected_qty=?, updated_at=datetime('now') WHERE id=?`,
     [overall_status, totalOrdered, totalReceived, totalAccepted, totalRejected, grnId]
   );
+}
+
+export async function getGRNPendingTotal(poId: string): Promise<{
+  totalOrdered: number;
+  totalReceived: number;
+  totalPending: number;
+  allReceived: boolean;
+}> {
+  const grn = await getGRNByPO(poId);
+  if (!grn || !grn.items || grn.items.length === 0) {
+    return { totalOrdered: 0, totalReceived: 0, totalPending: 0, allReceived: false };
+  }
+
+  let totalOrdered = 0;
+  let totalReceived = 0;
+  let totalPending = 0;
+
+  for (const item of grn.items) {
+    if (item.size_data) {
+      for (const entry of Object.values(item.size_data)) {
+        totalOrdered += entry.ordered;
+        totalReceived += entry.received;
+        totalPending += Math.max(0, entry.ordered - entry.received);
+      }
+    } else {
+      totalOrdered += item.ordered_qty;
+      totalReceived += item.received_qty;
+      totalPending += Math.max(0, item.ordered_qty - item.received_qty);
+    }
+  }
+
+  return { totalOrdered, totalReceived, totalPending, allReceived: totalPending === 0 };
 }
 
 export async function addGRNPhoto(grnItemId: string, photoUri: string, photoType = 'received'): Promise<string> {

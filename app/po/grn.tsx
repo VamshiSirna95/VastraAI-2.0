@@ -25,8 +25,8 @@ type ItemStatus = GRNItem['status'];
 const ITEM_STATUS_CFG: Record<ItemStatus, { label: string; color: string }> = {
   pending:  { label: 'Pending',  color: 'rgba(255,255,255,0.3)' },
   accepted: { label: '✓ Full',   color: '#5DCAA5' },
-  short:    { label: 'Short',    color: '#EF9F27' },
-  rejected: { label: 'QC Fail',  color: '#E24B4A' },
+  short:    { label: 'Partial',  color: '#EF9F27' },
+  rejected: { label: 'QC Issue', color: '#EF9F27' },
 };
 
 // Local editable state per GRN item
@@ -132,28 +132,34 @@ export default function GRNScreen() {
     const local = localData[item.id];
     if (!local) return;
 
-    // Build size_data from local sizeReceived
-    const sizeData: GRNSizeData = {};
+    const { totalReceived, accepted, rejected, pending } = calcItemTotals(local, item.ordered_qty);
+    const status: ItemStatus = totalReceived === 0 ? 'pending'
+      : pending > 0 ? 'short'
+      : rejected > 0 ? 'rejected'
+      : 'accepted';
+
+    // Build size_data with per-size received; distribute item-level rejection from last sizes first
+    const finalSizeData: GRNSizeData = {};
     if (item.size_data) {
-      for (const [lbl, entry] of Object.entries(item.size_data)) {
-        sizeData[lbl] = {
-          ordered: entry.ordered,
-          received: parseInt(local.sizeReceived[lbl] || '0', 10) || 0,
-        };
+      const sizeEntries = Object.entries(item.size_data);
+      // First pass: set received per size, default accepted = received
+      for (const [lbl, entry] of sizeEntries) {
+        const rcvd = parseInt(local.sizeReceived[lbl] || '0', 10) || 0;
+        finalSizeData[lbl] = { ordered: entry.ordered, received: rcvd, accepted: rcvd, rejected: 0 };
+      }
+      // Second pass: distribute rejection from last sizes first
+      let remainingRejection = rejected;
+      for (let i = sizeEntries.length - 1; i >= 0 && remainingRejection > 0; i--) {
+        const lbl = sizeEntries[i][0];
+        const entry = finalSizeData[lbl];
+        const sizeReject = Math.min(entry.received, remainingRejection);
+        finalSizeData[lbl] = { ...entry, accepted: entry.received - sizeReject, rejected: sizeReject };
+        remainingRejection -= sizeReject;
       }
     }
 
-    const { totalReceived, accepted, rejected, pending } = calcItemTotals(local, item.ordered_qty);
-    const status: ItemStatus = totalReceived === 0 ? 'pending'
-      : rejected > 0 ? 'rejected'
-      : pending > 0 ? 'short'
-      : 'accepted';
-
     await updateGRNItem(item.id, {
-      size_data: Object.keys(sizeData).length > 0 ? sizeData : undefined,
-      received_qty: totalReceived,
-      accepted_qty: accepted,
-      rejected_qty: rejected,
+      size_data: Object.keys(finalSizeData).length > 0 ? finalSizeData : undefined,
       notes: local.notes || undefined,
       rejection_reason: local.rejectionReason || undefined,
       status,
@@ -349,8 +355,8 @@ export default function GRNScreen() {
           const local = localData[item.id] ?? { sizeReceived: {}, acceptedStr: '', notes: '', rejectionReason: '' };
           const { totalReceived: itemReceived, accepted: itemAccepted, rejected: itemRejected, pending: itemPending } = calcItemTotals(local, item.ordered_qty);
           const derivedStatus: ItemStatus = itemReceived === 0 ? 'pending'
-            : itemRejected > 0 ? 'rejected'
             : itemPending > 0 ? 'short'
+            : itemRejected > 0 ? 'rejected'
             : 'accepted';
           const statusCfg = ITEM_STATUS_CFG[derivedStatus];
           const hasSizeData = item.size_data && Object.keys(item.size_data).length > 0;
@@ -555,15 +561,36 @@ export default function GRNScreen() {
         </View>
 
         {/* Finalize / Finalized */}
-        {!isFinalized ? (
-          <TouchableOpacity
-            style={[styles.finalizeBtn, finalizing && styles.finalizeBtnDisabled]}
-            onPress={handleFinalize}
-            disabled={finalizing}
-          >
-            <Text style={styles.finalizeBtnText}>{finalizing ? 'Finalizing…' : 'Finalize GRN'}</Text>
-          </TouchableOpacity>
-        ) : (
+        {!isFinalized ? (() => {
+          const isPartial = livePending > 0;
+          const itemsWithPending = items.filter((i) => {
+            const local = localData[i.id];
+            if (!local) return false;
+            return calcItemTotals(local, i.ordered_qty).pending > 0;
+          }).length;
+          return (
+            <View style={styles.finalizeWrapper}>
+              <TouchableOpacity
+                style={[
+                  styles.finalizeBtn,
+                  isPartial ? styles.finalizeBtnAmber : styles.finalizeBtnBlue,
+                  finalizing && styles.finalizeBtnDisabled,
+                ]}
+                onPress={handleFinalize}
+                disabled={finalizing}
+              >
+                <Text style={[styles.finalizeBtnText, { color: isPartial ? colors.amber : colors.blue }]}>
+                  {finalizing ? 'Finalizing…' : isPartial ? 'Finalize Partial GRN' : 'Finalize GRN'}
+                </Text>
+              </TouchableOpacity>
+              {isPartial && !finalizing && (
+                <Text style={styles.finalizeWarning}>
+                  {livePending} pcs still pending across {itemsWithPending} {itemsWithPending === 1 ? 'item' : 'items'}
+                </Text>
+              )}
+            </View>
+          );
+        })() : (
           <View style={styles.finalizedBanner}>
             <Text style={styles.finalizedText}>
               GRN {grn.overall_status.toUpperCase()} — {grn.total_accepted_qty}/{grn.total_ordered_qty} accepted
@@ -802,17 +829,29 @@ const styles = StyleSheet.create({
   groupBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   groupBadgeText: { fontSize: 12, fontWeight: '700', fontFamily: 'Inter_700Bold' },
 
+  finalizeWrapper: { marginHorizontal: 20, gap: 8 },
   finalizeBtn: {
-    marginHorizontal: 20,
     paddingVertical: 16,
     borderRadius: 14,
-    backgroundColor: 'rgba(55,138,221,0.12)',
     borderWidth: 1,
-    borderColor: 'rgba(55,138,221,0.3)',
     alignItems: 'center',
   },
+  finalizeBtnBlue: {
+    backgroundColor: 'rgba(55,138,221,0.12)',
+    borderColor: 'rgba(55,138,221,0.3)',
+  },
+  finalizeBtnAmber: {
+    backgroundColor: 'rgba(239,159,39,0.12)',
+    borderColor: 'rgba(239,159,39,0.3)',
+  },
   finalizeBtnDisabled: { opacity: 0.5 },
-  finalizeBtnText: { fontSize: 16, fontWeight: '700', color: colors.blue, fontFamily: 'Inter_700Bold' },
+  finalizeBtnText: { fontSize: 16, fontWeight: '700', fontFamily: 'Inter_700Bold' },
+  finalizeWarning: {
+    fontSize: 12,
+    color: colors.amber,
+    fontFamily: 'Inter_400Regular',
+    textAlign: 'center',
+  },
   finalizedBanner: {
     marginHorizontal: 20,
     paddingVertical: 16,

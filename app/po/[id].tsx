@@ -1,17 +1,25 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Modal, TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import {
-  getPOById, updatePO, getLRByPO, getGRNByPO, createGRN,
+  getPOById, updatePO, getLRByPO, getGRNByPO, createGRN, getGRNPendingTotal, updateGRNItem,
 } from '../../db/database';
 import type { PurchaseOrder, POItem, LorryReceipt, GRNRecord } from '../../db/types';
 import { DeliveryCard } from '../../components/DeliveryCard';
 import { calculateDelivery, type DeliverySchedule } from '../../services/delivery';
+
+const CANCEL_REASONS = [
+  'Vendor unable to deliver',
+  'Quality issues',
+  'No longer needed',
+  'Other',
+] as const;
+type CancelReason = typeof CANCEL_REASONS[number];
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -59,6 +67,14 @@ export default function PODetailScreen() {
   const [lr, setLr] = useState<LorryReceipt | null>(null);
   const [grn, setGrn] = useState<GRNRecord | null>(null);
   const [deliverySchedule, setDeliverySchedule] = useState<DeliverySchedule | null>(null);
+  const [grnPending, setGrnPending] = useState<{ totalOrdered: number; totalReceived: number; totalPending: number; allReceived: boolean } | null>(null);
+
+  // Cancel remaining modal state
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelReason, setCancelReason] = useState<CancelReason>('Vendor unable to deliver');
+  const [cancelCustomReason, setCancelCustomReason] = useState('');
+  const [cancelNotes, setCancelNotes] = useState('');
+  const [cancelling, setCancelling] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -72,6 +88,12 @@ export default function PODetailScreen() {
     setLr(lrData);
     setGrn(grnData);
     setDeliverySchedule(sched);
+    if (data?.status === 'received' && grnData) {
+      const pending = await getGRNPendingTotal(id);
+      setGrnPending(pending);
+    } else {
+      setGrnPending(null);
+    }
   }, [id]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -86,7 +108,10 @@ export default function PODetailScreen() {
     );
   }
 
-  const statusCfg = STATUS_CONFIG[po.status];
+  const isPartialClose = po.status === 'closed' && (po.cancelled_qty ?? 0) > 0;
+  const statusCfg = isPartialClose
+    ? { label: 'Closed (Partial)', color: '#EF9F27' }
+    : STATUS_CONFIG[po.status];
   const isEditable = po.status === 'draft';
   const nextStatus = STATUS_TRANSITIONS[po.status];
   const nextCfg = nextStatus ? STATUS_CONFIG[nextStatus] : null;
@@ -97,7 +122,7 @@ export default function PODetailScreen() {
     (i) => i.total_qty > 0 && i.unit_price > 0
   );
 
-  type GateResult = { allowed: boolean; reason?: string; actionLabel?: string; actionPath?: string };
+  type GateResult = { allowed: boolean; reason?: string; actionLabel?: string; actionPath?: string; pendingClose?: boolean };
 
   function getGate(): GateResult {
     switch (po!.status) {
@@ -109,16 +134,64 @@ export default function PODetailScreen() {
         return lr
           ? { allowed: true }
           : { allowed: false, reason: 'Upload Lorry Receipt first', actionLabel: 'Upload LR →', actionPath: `/po/lr-upload?poId=${id}` };
-      case 'received':
-        return grn && grn.overall_status !== 'pending'
-          ? { allowed: true }
-          : { allowed: false, reason: 'Complete GRN verification first', actionLabel: grn ? 'Open GRN →' : 'Start GRN →', actionPath: `/po/grn?poId=${id}` };
+      case 'received': {
+        if (!grn || grn.overall_status === 'pending') {
+          return { allowed: false, reason: 'Complete GRN verification first', actionLabel: grn ? 'Open GRN →' : 'Start GRN →', actionPath: `/po/grn?poId=${id}` };
+        }
+        if (grnPending && !grnPending.allReceived) {
+          return { allowed: false, reason: `${grnPending.totalPending} pcs still pending receipt`, pendingClose: true };
+        }
+        return { allowed: true };
+      }
       default:
         return { allowed: true };
     }
   }
 
   const gate = getGate();
+
+  const handleCancelRemaining = async () => {
+    if (!po || !grn) return;
+    if (cancelReason === 'Other' && cancelCustomReason.trim().length < 10) {
+      Alert.alert('Reason required', 'Please enter at least 10 characters for the custom reason.');
+      return;
+    }
+    setCancelling(true);
+    try {
+      const reasonText = cancelReason === 'Other'
+        ? `Other: ${cancelCustomReason.trim()}`
+        : cancelReason;
+      const fullReason = cancelNotes.trim()
+        ? `${reasonText}. Notes: ${cancelNotes.trim()}`
+        : reasonText;
+
+      // Zero out all pending size quantities in GRN items
+      for (const item of grn.items ?? []) {
+        if (item.size_data) {
+          const updatedSizeData = { ...item.size_data };
+          for (const lbl of Object.keys(updatedSizeData)) {
+            const entry = updatedSizeData[lbl];
+            if (entry.received < entry.ordered) {
+              updatedSizeData[lbl] = { ...entry, received: entry.ordered, accepted: entry.ordered, rejected: entry.rejected };
+            }
+          }
+          await updateGRNItem(item.id, { size_data: updatedSizeData });
+        }
+      }
+
+      await updatePO(po.id, {
+        status: 'closed',
+        cancellation_reason: fullReason,
+        cancelled_qty: grnPending?.totalPending ?? 0,
+      });
+      setShowCancelModal(false);
+      await load();
+    } catch (e) {
+      Alert.alert('Error', String(e));
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   const handleAdvanceStatus = async () => {
     if (!po || !nextStatus) return;
@@ -346,11 +419,80 @@ export default function PODetailScreen() {
                   )}
                 </View>
               )}
+
+              {gate.pendingClose && (
+                <TouchableOpacity
+                  style={styles.cancelRemainingBtn}
+                  onPress={() => setShowCancelModal(true)}
+                >
+                  <Text style={styles.cancelRemainingText}>Cancel Remaining &amp; Close</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </View>
 
       </ScrollView>
+
+      {/* Cancel Remaining Modal */}
+      <Modal visible={showCancelModal} transparent animationType="slide" onRequestClose={() => setShowCancelModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Cancel Pending Items</Text>
+            <Text style={styles.modalSubtitle}>
+              {grnPending ? `${grnPending.totalPending} pcs pending receipt` : 'Pending items will be cancelled'}
+            </Text>
+
+            <Text style={styles.modalLabel}>Reason</Text>
+            <View style={styles.reasonPicker}>
+              {CANCEL_REASONS.map((r) => (
+                <TouchableOpacity
+                  key={r}
+                  style={[styles.reasonChip, cancelReason === r && styles.reasonChipActive]}
+                  onPress={() => setCancelReason(r)}
+                >
+                  <Text style={[styles.reasonChipText, cancelReason === r && styles.reasonChipTextActive]}>
+                    {r}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {cancelReason === 'Other' && (
+              <TextInput
+                style={styles.modalInput}
+                value={cancelCustomReason}
+                onChangeText={setCancelCustomReason}
+                placeholder="Describe reason (min 10 chars)…"
+                placeholderTextColor="rgba(255,255,255,0.2)"
+                multiline
+              />
+            )}
+
+            <Text style={styles.modalLabel}>Additional notes (optional)</Text>
+            <TextInput
+              style={[styles.modalInput, { minHeight: 60 }]}
+              value={cancelNotes}
+              onChangeText={setCancelNotes}
+              placeholder="Any additional notes…"
+              placeholderTextColor="rgba(255,255,255,0.2)"
+              multiline
+            />
+
+            <TouchableOpacity
+              style={[styles.confirmCancelBtn, cancelling && { opacity: 0.5 }]}
+              onPress={handleCancelRemaining}
+              disabled={cancelling}
+            >
+              <Text style={styles.confirmCancelText}>{cancelling ? 'Cancelling…' : 'Confirm Cancellation'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.goBackBtn} onPress={() => setShowCancelModal(false)}>
+              <Text style={styles.goBackText}>Go Back</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -523,4 +665,89 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     textDecorationLine: 'underline',
   },
+
+  cancelRemainingBtn: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(239,159,39,0.3)',
+    backgroundColor: 'rgba(239,159,39,0.1)',
+    alignItems: 'center',
+  },
+  cancelRemainingText: { fontSize: 15, fontWeight: '700', color: colors.amber, fontFamily: 'Inter_700Bold' },
+
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: '#0A0A0A',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    padding: 24,
+    paddingBottom: 40,
+    gap: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: 'Inter_700Bold',
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
+    fontFamily: 'Inter_400Regular',
+    marginBottom: 4,
+  },
+  modalLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.25)',
+    fontFamily: 'Inter_700Bold',
+  },
+  reasonPicker: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  reasonChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  reasonChipActive: {
+    borderColor: 'rgba(239,159,39,0.4)',
+    backgroundColor: 'rgba(239,159,39,0.12)',
+  },
+  reasonChipText: { fontSize: 13, color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_400Regular' },
+  reasonChipTextActive: { color: colors.amber, fontWeight: '600', fontFamily: 'Inter_500Medium' },
+  modalInput: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#FFFFFF',
+    fontFamily: 'Inter_400Regular',
+  },
+  confirmCancelBtn: {
+    paddingVertical: 15,
+    borderRadius: 12,
+    backgroundColor: 'rgba(226,75,74,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(226,75,74,0.3)',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  confirmCancelText: { fontSize: 16, fontWeight: '700', color: colors.red, fontFamily: 'Inter_700Bold' },
+  goBackBtn: { alignItems: 'center', paddingVertical: 10 },
+  goBackText: { fontSize: 14, color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_400Regular' },
 });
