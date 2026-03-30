@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import Svg, { Path, Circle } from 'react-native-svg';
 import * as Sharing from 'expo-sharing';
+import * as Print from 'expo-print';
 import { colors } from '../../constants/theme';
 import {
   getPOById, updatePO, getLRByPO, getGRNByPO, getGRNsByPO, createGRN, getGRNPendingTotal,
@@ -313,7 +314,7 @@ export default function PODetailScreen() {
               <>
                 <TouchableOpacity
                   style={styles.docBtnOutline}
-                  onPress={() => po.document_uri && Linking.openURL(po.document_uri)}
+                  onPress={async () => { if (po.document_uri) await Print.printAsync({ uri: po.document_uri }); }}
                 >
                   <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
                     <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke={colors.amber} strokeWidth={1.8} strokeLinejoin="round" />
