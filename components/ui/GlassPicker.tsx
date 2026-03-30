@@ -7,6 +7,7 @@ import {
   FlatList,
   StyleSheet,
   SafeAreaView,
+  Pressable,
 } from 'react-native';
 import Svg, { Path, Polyline } from 'react-native-svg';
 
@@ -50,10 +51,19 @@ export default function GlassPicker({
         </Svg>
       </TouchableOpacity>
 
-      <Modal visible={open} transparent animationType="slide">
+      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
         <View style={styles.modalOverlay}>
+          {/* Tap backdrop to dismiss */}
+          <Pressable style={styles.backdrop} onPress={() => setOpen(false)} />
           <SafeAreaView style={styles.sheet}>
-            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeaderRow}>
+              <View style={styles.sheetHandle} />
+              <TouchableOpacity style={styles.sheetClose} onPress={() => setOpen(false)}>
+                <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                  <Path d="M18 6L6 18M6 6l12 12" stroke="rgba(255,255,255,0.4)" strokeWidth={2} strokeLinecap="round" />
+                </Svg>
+              </TouchableOpacity>
+            </View>
             <FlatList
               data={options as string[]}
               keyExtractor={(item) => item}
@@ -134,6 +144,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'flex-end',
   },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
   sheet: {
     backgroundColor: 'rgba(10,10,16,0.98)',
     borderTopLeftRadius: 20,
@@ -141,14 +154,24 @@ const styles = StyleSheet.create({
     maxHeight: '70%',
     paddingBottom: 24,
   },
+  sheetHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 12,
+    paddingHorizontal: 16,
+    marginBottom: 4,
+  },
   sheetHandle: {
     width: 36,
     height: 4,
     backgroundColor: 'rgba(255,255,255,0.15)',
     borderRadius: 2,
-    alignSelf: 'center',
-    marginTop: 12,
-    marginBottom: 8,
+    flex: 1,
+    marginHorizontal: 30,
+  },
+  sheetClose: {
+    padding: 4,
   },
   option: {
     flexDirection: 'row',
