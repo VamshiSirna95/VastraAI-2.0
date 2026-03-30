@@ -25,7 +25,9 @@
         {
           "cameraPermission": "Allow VASTRA to access your camera to scan garments."
         }
-      ]
+      ],
+      "expo-asset",
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true
