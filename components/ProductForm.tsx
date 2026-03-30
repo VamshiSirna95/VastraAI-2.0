@@ -9,8 +9,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
+  TextInput,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path } from 'react-native-svg';
 import { colors } from '../constants/theme';
 import {
@@ -37,6 +39,20 @@ import {
 import GlassInput from './ui/GlassInput';
 import GlassPicker from './ui/GlassPicker';
 import PhotoViewer from './PhotoViewer';
+import VoiceNoteBar from './VoiceNoteBar';
+import { deleteAudioFile } from '../services/audio';
+
+// ── Annotation templates ──────────────────────────────────────────────────────
+
+const ASYNC_KEY = 'vastra_annotation_templates';
+const DEFAULT_ANNOTATIONS = [
+  'Shorten sleeve by __ inches',
+  'Use heavier fabric',
+  'Change button style',
+  'Reduce neckline depth',
+  'Add pocket',
+  'Match color to sample',
+];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -174,6 +190,16 @@ export default function ProductForm({ initial, productId, aiConfidence, aiFields
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
 
+  // Voice note
+  const [voiceUri, setVoiceUri] = useState<string | undefined>(initial?.voice_note_uri ?? undefined);
+  const [voiceDuration, setVoiceDuration] = useState<number | undefined>(undefined);
+
+  // Annotations
+  const [annotations, setAnnotations] = useState<string[]>(DEFAULT_ANNOTATIONS);
+  const [usedAnnotations, setUsedAnnotations] = useState<Set<string>>(new Set());
+  const [addingCustom, setAddingCustom] = useState(false);
+  const [customAnnotationText, setCustomAnnotationText] = useState('');
+
   // Vendors
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [saving, setSaving] = useState(false);
@@ -196,6 +222,17 @@ export default function ProductForm({ initial, productId, aiConfidence, aiFields
   // Load vendors
   useEffect(() => {
     getVendors().then(setVendors).catch(() => {});
+  }, []);
+
+  // Load custom annotation templates
+  useEffect(() => {
+    AsyncStorage.getItem(ASYNC_KEY).then((raw) => {
+      if (!raw) return;
+      try {
+        const saved: string[] = JSON.parse(raw);
+        setAnnotations([...DEFAULT_ANNOTATIONS, ...saved.filter((s) => !DEFAULT_ANNOTATIONS.includes(s))]);
+      } catch { /* ignore */ }
+    }).catch(() => {});
   }, []);
 
   // Load template attrs when garment type changes
@@ -230,6 +267,41 @@ export default function ProductForm({ initial, productId, aiConfidence, aiFields
     setCustomAttrs((prev) => [...prev, { name: newAttrName.trim(), value: newAttrValue.trim() }]);
     setNewAttrName('');
     setNewAttrValue('');
+  };
+
+  const handleAnnotationTap = (text: string) => {
+    setUsedAnnotations((prev) => new Set([...prev, text]));
+    setNotes((prev) => prev ? `${prev}\n${text}` : text);
+  };
+
+  const saveCustomAnnotation = async () => {
+    const t = customAnnotationText.trim();
+    if (!t) { setAddingCustom(false); return; }
+    const updated = [...annotations, t];
+    setAnnotations(updated);
+    setAddingCustom(false);
+    setCustomAnnotationText('');
+    const custom = updated.filter((a) => !DEFAULT_ANNOTATIONS.includes(a));
+    await AsyncStorage.setItem(ASYNC_KEY, JSON.stringify(custom)).catch(() => {});
+  };
+
+  const handleVoiceRecorded = async (uri: string, duration: number) => {
+    setVoiceUri(uri);
+    setVoiceDuration(duration);
+    if (productId) {
+      await updateProduct(productId, { voice_note_uri: uri } as Partial<Product>).catch(() => {});
+    }
+  };
+
+  const handleVoiceDeleted = async () => {
+    if (voiceUri) {
+      await deleteAudioFile(voiceUri).catch(() => {});
+      if (productId) {
+        await updateProduct(productId, { voice_note_uri: undefined } as Partial<Product>).catch(() => {});
+      }
+    }
+    setVoiceUri(undefined);
+    setVoiceDuration(undefined);
   };
 
   const handleSave = async () => {
@@ -548,31 +620,68 @@ export default function ProductForm({ initial, productId, aiConfidence, aiFields
 
         {/* ── Section 6: Notes ─── */}
         <Section title="Notes">
+          {/* Voice note */}
+          <VoiceNoteBar
+            voiceUri={voiceUri}
+            duration={voiceDuration}
+            onRecorded={handleVoiceRecorded}
+            onDeleted={handleVoiceDeleted}
+          />
+
+          {/* Annotation chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.annotationChips}
+            style={styles.annotationScroll}
+          >
+            {annotations.map((text) => (
+              <TouchableOpacity
+                key={text}
+                style={[styles.annotationChip, usedAnnotations.has(text) && styles.annotationChipUsed]}
+                onPress={() => handleAnnotationTap(text)}
+                activeOpacity={0.7}
+              >
+                {usedAnnotations.has(text) && (
+                  <Svg width={10} height={10} viewBox="0 0 24 24" fill="none">
+                    <Path d="M20 6L9 17l-5-5" stroke={colors.amber} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                  </Svg>
+                )}
+                <Text style={styles.annotationChipText}>{text}</Text>
+              </TouchableOpacity>
+            ))}
+            {addingCustom ? (
+              <View style={styles.customAnnotationInput}>
+                <TextInput
+                  value={customAnnotationText}
+                  onChangeText={setCustomAnnotationText}
+                  onSubmitEditing={saveCustomAnnotation}
+                  onBlur={saveCustomAnnotation}
+                  placeholder="Custom template…"
+                  placeholderTextColor="rgba(255,255,255,0.25)"
+                  style={styles.customAnnotationText}
+                  autoFocus
+                  returnKeyType="done"
+                />
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.annotationAddChip} onPress={() => setAddingCustom(true)}>
+                <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                  <Path d="M12 5v14M5 12h14" stroke={colors.amber} strokeWidth={2.5} strokeLinecap="round" />
+                </Svg>
+              </TouchableOpacity>
+            )}
+          </ScrollView>
+
+          {/* Notes textarea */}
           <GlassInput
-            label="Notes"
             value={notes}
             onChangeText={setNotes}
-            placeholder="Any additional notes…"
+            placeholder="Add notes about modifications, fabric changes..."
             multiline
             numberOfLines={4}
             style={styles.notesInput}
           />
-          <View style={styles.voiceNoteBtn}>
-            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-              <Path
-                d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z"
-                stroke="rgba(255,255,255,0.3)"
-                strokeWidth={1.8}
-              />
-              <Path
-                d="M19 10v2a7 7 0 01-14 0v-2M12 21v-4"
-                stroke="rgba(255,255,255,0.3)"
-                strokeWidth={1.8}
-                strokeLinecap="round"
-              />
-            </Svg>
-            <Text style={styles.voiceNoteLabel}>Voice note: Sprint V5</Text>
-          </View>
         </Section>
 
         {/* ── AI confidence ─── */}
@@ -737,25 +846,62 @@ const styles = StyleSheet.create({
   },
 
   notesInput: {
-    minHeight: 80,
+    minHeight: 100,
     textAlignVertical: 'top',
     paddingTop: 12,
   },
-  voiceNoteBtn: {
+  annotationScroll: {
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  annotationChips: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingRight: 8,
+    alignItems: 'center',
+  },
+  annotationChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginTop: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    gap: 4,
+    backgroundColor: 'rgba(239,159,39,0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 10,
+    borderColor: 'rgba(239,159,39,0.15)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  voiceNoteLabel: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.3)',
+  annotationChipUsed: {
+    opacity: 0.5,
+  },
+  annotationChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.amber,
+    fontFamily: 'Inter_700Bold',
+  },
+  annotationAddChip: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: 'rgba(239,159,39,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,159,39,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  customAnnotationInput: {
+    backgroundColor: 'rgba(239,159,39,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,159,39,0.25)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minWidth: 140,
+  },
+  customAnnotationText: {
+    fontSize: 12,
+    color: colors.amber,
     fontFamily: 'Inter_400Regular',
   },
 
