@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import { getPOById, updatePO } from '../../db/database';
-import type { PurchaseOrder } from '../../db/types';
+import type { PurchaseOrder, POItem } from '../../db/types';
+import { DeliveryCard } from '../../components/DeliveryCard';
+import { calculateDelivery, type DeliverySchedule } from '../../services/delivery';
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -43,6 +45,7 @@ export default function PODetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [po, setPo] = useState<PurchaseOrder | null>(null);
+  const [deliverySchedule, setDeliverySchedule] = useState<DeliverySchedule | null>(null);
 
   useEffect(() => {
     if (id) load();
@@ -51,6 +54,9 @@ export default function PODetailScreen() {
   const load = async () => {
     const data = await getPOById(id);
     setPo(data);
+    // Compute delivery urgency based on default stock levels
+    const s = await calculateDelivery(0, 1);
+    setDeliverySchedule(s);
   };
 
   const handleAdvanceStatus = async () => {
@@ -110,6 +116,13 @@ export default function PODetailScreen() {
           ) : null}
         </View>
 
+        {/* Delivery Card */}
+        {deliverySchedule && (
+          <View style={styles.deliverySection}>
+            <DeliveryCard schedule={deliverySchedule} />
+          </View>
+        )}
+
         {/* Items */}
         <View style={styles.glassCard}>
           <View style={styles.sectionRow}>
@@ -157,7 +170,7 @@ export default function PODetailScreen() {
           {isEditable && (
             <TouchableOpacity
               style={styles.editBtn}
-              onPress={() => Alert.alert('Edit', 'Edit functionality — navigate to new.tsx with PO ID')}
+              onPress={() => router.push(`/po/new?editId=${po.id}`)}
             >
               <Text style={styles.editBtnText}>Edit PO</Text>
             </TouchableOpacity>
@@ -186,8 +199,6 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     </View>
   );
 }
-
-import type { POItem } from '../../db/types';
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000000' },
@@ -234,6 +245,10 @@ const styles = StyleSheet.create({
   summaryCard: {
     backgroundColor: 'rgba(93,202,165,0.04)',
     borderColor: 'rgba(93,202,165,0.12)',
+  },
+  deliverySection: {
+    marginHorizontal: 20,
+    marginBottom: 16,
   },
 
   sectionLabel: {
