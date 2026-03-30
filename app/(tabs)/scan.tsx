@@ -9,6 +9,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
 import { colors } from '../../constants/theme';
@@ -157,6 +158,7 @@ function PermissionView({ onRequest }: { onRequest: () => void }) {
 // ── Main scan screen ──────────────────────────────────────────────────────────
 
 export default function ScanScreen() {
+  const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
   const [activeMode, setActiveMode] = React.useState<Mode>('Tag');
 
@@ -269,9 +271,12 @@ export default function ScanScreen() {
           </TouchableOpacity>
 
           {/* Shutter */}
-          <View style={styles.shutterOuter}>
+          <TouchableOpacity
+            style={styles.shutterOuter}
+            onPress={() => router.push('/product/new')}
+          >
             <View style={styles.shutterInner} />
-          </View>
+          </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.bottomSideBtn}

@@ -8,6 +8,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import Svg, { Path, Polyline } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import ModuleCard, { type PatternType, type MetricData } from '../../components/ModuleCard';
@@ -70,11 +71,13 @@ interface QuickActionProps {
   label: string;
   color: string;
   icon: React.ReactNode;
+  onPress?: () => void;
 }
 
-function QuickAction({ label, color, icon }: QuickActionProps) {
+function QuickAction({ label, color, icon, onPress }: QuickActionProps) {
   return (
     <TouchableOpacity
+      onPress={onPress}
       style={[
         styles.quickAction,
         {
@@ -177,6 +180,8 @@ const modules: ModuleData[] = [
 // ─── Home Screen ──────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
+  const router = useRouter();
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
@@ -226,6 +231,7 @@ export default function HomeScreen() {
           <QuickAction
             label="Scan"
             color={colors.teal}
+            onPress={() => router.push('/(tabs)/scan')}
             icon={
               <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
                 <Path
@@ -240,6 +246,7 @@ export default function HomeScreen() {
           <QuickAction
             label="New article"
             color={colors.amber}
+            onPress={() => router.push('/product/new')}
             icon={
               <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
                 <Path
@@ -259,6 +266,7 @@ export default function HomeScreen() {
           <QuickAction
             label="Create PO"
             color={colors.purple}
+            onPress={() => router.push('/(tabs)/orders')}
             icon={
               <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
                 <Path
