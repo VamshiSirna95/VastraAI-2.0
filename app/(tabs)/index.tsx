@@ -12,7 +12,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path, Polyline } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import ModuleCard, { type PatternType, type MetricData } from '../../components/ModuleCard';
-import { getPOCount, getPOs, getGRNPendingCount } from '../../db/database';
+import { getPOs, getGRNPendingCount } from '../../db/database';
 import { calculateDelivery } from '../../services/delivery';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -189,13 +189,16 @@ export default function HomeScreen() {
 
   useFocusEffect(useCallback(() => {
     const loadData = async () => {
-      const [count, allPOs, schedule, grnPending] = await Promise.all([
-        getPOCount(),
+      const [allPOs, schedule, grnPending] = await Promise.all([
         getPOs(),
         calculateDelivery(0, 1),
         getGRNPendingCount(),
       ]);
-      setActivePOCount(count);
+      // Active POs = not closed, not deleted
+      const activeCount = allPOs.filter(
+        (p) => p.status !== 'closed' && !(p.is_deleted)
+      ).length;
+      setActivePOCount(activeCount);
       setGrnPendingCount(grnPending);
       if (schedule.urgency === 'CRITICAL') {
         const critCount = allPOs.filter(
@@ -275,7 +278,7 @@ export default function HomeScreen() {
             sparkPoints="0,10 10,9 20,11 30,8 40,10 50,9 60,8"
           />
           <StatCard
-            value="3"
+            value={String(grnPendingCount)}
             label="GRN due"
             color={colors.red}
             sparkPoints="0,12 10,10 20,13 30,9 40,12 50,8 60,10"

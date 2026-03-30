@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { colors } from '../../constants/theme';
-import { getProducts, getProductCount, getPOs, getPOCount } from '../../db/database';
+import { getProducts, getProductCount, getPOs, getPOCount, getDeletedPOCount, getGRNByPO } from '../../db/database';
 import type { Product, PurchaseOrder } from '../../db/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -34,12 +34,12 @@ const STATUS_CONFIG: Record<ProductStatus, { label: string; color: string }> = {
 type POStatus = PurchaseOrder['status'];
 
 const PO_STATUS_CONFIG: Record<POStatus, { label: string; color: string }> = {
-  draft:      { label: 'Draft',      color: '#EF9F27' },
-  sent:       { label: 'Sent',       color: '#378ADD' },
-  confirmed:  { label: 'Confirmed',  color: '#7F77DD' },
-  dispatched: { label: 'Dispatched', color: '#AFA9EC' },
-  received:   { label: 'Received',   color: '#5DCAA5' },
-  closed:     { label: 'Closed',     color: 'rgba(255,255,255,0.3)' },
+  draft:      { label: 'Draft',      color: 'rgba(255,255,255,0.4)' },
+  confirmed:  { label: 'Confirmed',  color: '#EF9F27' },
+  sent:       { label: 'Sent',       color: '#EF9F27' },
+  dispatched: { label: 'Dispatched', color: '#378ADD' },
+  received:   { label: 'Received',   color: '#378ADD' },
+  closed:     { label: 'Closed',     color: '#5DCAA5' },
 };
 
 // ── Placeholder color by garment type ─────────────────────────────────────────
@@ -122,12 +122,15 @@ function ProductCard({ product, onPress }: ProductCardProps) {
 // ── PO card ───────────────────────────────────────────────────────────────────
 
 interface POCardProps {
-  po: PurchaseOrder;
+  po: PurchaseOrder & { grn_received?: number; grn_ordered?: number };
   onPress: () => void;
 }
 
 function POCard({ po, onPress }: POCardProps) {
-  const statusCfg = PO_STATUS_CONFIG[po.status] ?? PO_STATUS_CONFIG.draft;
+  const isPartialClose = po.status === 'closed' && (po.cancelled_qty ?? 0) > 0;
+  const statusCfg = isPartialClose
+    ? { label: 'Closed (Partial)', color: '#EF9F27' }
+    : (PO_STATUS_CONFIG[po.status] ?? PO_STATUS_CONFIG.draft);
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
       <View style={[styles.thumb, { backgroundColor: hexToRgba(colors.purple, 0.12) }]}>
@@ -143,9 +146,14 @@ function POCard({ po, onPress }: POCardProps) {
       </View>
       <View style={styles.cardBody}>
         <Text style={styles.cardTitle} numberOfLines={1}>{po.po_number}</Text>
-        <Text style={styles.cardSub} numberOfLines={1}>{po.vendor_name ?? 'Unknown vendor'}</Text>
+        <Text style={styles.cardSub} numberOfLines={1}>{(po as PurchaseOrder & { vendor_name?: string }).vendor_name ?? 'Unknown vendor'}</Text>
         {po.delivery_date && (
           <Text style={styles.cardVendor}>Delivery: {po.delivery_date}</Text>
+        )}
+        {po.status === 'received' && po.grn_ordered != null && (
+          <Text style={styles.grnSubLine}>
+            GRN: {po.grn_received ?? 0}/{po.grn_ordered} received
+          </Text>
         )}
         <Text style={styles.poQty}>{po.total_qty} pcs</Text>
       </View>
@@ -235,27 +243,45 @@ function SegmentControl({ active, productCount, poCount, onChange }: SegmentCont
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 
+type POWithGRN = PurchaseOrder & { grn_received?: number; grn_ordered?: number };
+
 export default function OrdersScreen() {
   const router = useRouter();
   const [segment, setSegment] = useState<Segment>('products');
   const [products, setProducts] = useState<(Product & { vendor_name?: string })[]>([]);
-  const [pos, setPos] = useState<PurchaseOrder[]>([]);
+  const [pos, setPos] = useState<POWithGRN[]>([]);
   const [totalProductCount, setTotalProductCount] = useState(0);
   const [totalPOCount, setTotalPOCount] = useState(0);
+  const [deletedCount, setDeletedCount] = useState(0);
   const [search, setSearch] = useState('');
   const [activeType, setActiveType] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [all, cnt, allPOs, poCnt] = await Promise.all([
+    const [all, cnt, allPOs, poCnt, delCnt] = await Promise.all([
       getProducts({ search: search || undefined, garmentType: activeType ?? undefined }),
       getProductCount(),
       getPOs(),
       getPOCount(),
+      getDeletedPOCount(),
     ]);
     setProducts(all as (Product & { vendor_name?: string })[]);
     setTotalProductCount(cnt);
-    setPos(allPOs);
     setTotalPOCount(poCnt);
+    setDeletedCount(delCnt);
+
+    // Attach GRN data for received POs
+    const posWithGRN: POWithGRN[] = await Promise.all(
+      allPOs.map(async (po) => {
+        if (po.status === 'received') {
+          const grn = await getGRNByPO(po.id);
+          if (grn) {
+            return { ...po, grn_received: grn.total_received_qty, grn_ordered: grn.total_ordered_qty };
+          }
+        }
+        return po as POWithGRN;
+      })
+    );
+    setPos(posWithGRN);
   }, [search, activeType]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -373,6 +399,13 @@ export default function OrdersScreen() {
             )}
             contentContainerStyle={[styles.listContent, pos.length === 0 && styles.listEmpty]}
             ListEmptyComponent={<EmptyPOs onCreate={() => router.push('/po/new')} />}
+            ListFooterComponent={
+              deletedCount > 0 ? (
+                <TouchableOpacity style={styles.deletedLink} onPress={() => router.push('/po/deleted')}>
+                  <Text style={styles.deletedLinkText}>{deletedCount} deleted {deletedCount === 1 ? 'PO' : 'POs'} →</Text>
+                </TouchableOpacity>
+              ) : null
+            }
             showsVerticalScrollIndicator={false}
           />
 
@@ -707,5 +740,23 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 8,
     elevation: 8,
+  },
+
+  grnSubLine: {
+    fontSize: 11,
+    color: '#378ADD',
+    fontFamily: 'Inter_400Regular',
+    marginTop: 2,
+  },
+
+  deletedLink: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingBottom: 80,
+  },
+  deletedLinkText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.25)',
+    fontFamily: 'Inter_400Regular',
   },
 });

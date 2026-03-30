@@ -1,17 +1,20 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Modal, TextInput,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Modal, TextInput, Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import Svg, { Path, Circle } from 'react-native-svg';
+import * as Sharing from 'expo-sharing';
 import { colors } from '../../constants/theme';
 import {
   getPOById, updatePO, getLRByPO, getGRNByPO, createGRN, getGRNPendingTotal, updateGRNItem,
+  softDeletePO, getVendorById,
 } from '../../db/database';
 import type { PurchaseOrder, POItem, LorryReceipt, GRNRecord } from '../../db/types';
 import { DeliveryCard } from '../../components/DeliveryCard';
 import { calculateDelivery, type DeliverySchedule } from '../../services/delivery';
+import { generatePODocument } from '../../services/poDocument';
 
 const CANCEL_REASONS = [
   'Vendor unable to deliver',
@@ -68,6 +71,7 @@ export default function PODetailScreen() {
   const [grn, setGrn] = useState<GRNRecord | null>(null);
   const [deliverySchedule, setDeliverySchedule] = useState<DeliverySchedule | null>(null);
   const [grnPending, setGrnPending] = useState<{ totalOrdered: number; totalReceived: number; totalPending: number; allReceived: boolean } | null>(null);
+  const [generatingDoc, setGeneratingDoc] = useState(false);
 
   // Cancel remaining modal state
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -206,7 +210,21 @@ export default function PODetailScreen() {
         {
           text: 'Confirm', onPress: async () => {
             await updatePO(po.id, { status: 'confirmed' });
-            await load();
+            // Generate PDF document
+            setGeneratingDoc(true);
+            try {
+              const vendor = po.vendor_id ? await getVendorById(po.vendor_id) : null;
+              const items = po.items ?? [];
+              const uri = await generatePODocument(po, items as Parameters<typeof generatePODocument>[1], vendor);
+              await updatePO(po.id, { document_uri: uri });
+              await load();
+              Alert.alert('PO Confirmed & Document Generated ✓', `${po.po_number} is now confirmed.`);
+            } catch (e) {
+              await load();
+              Alert.alert('PO Confirmed', `Document generation failed: ${String(e)}`);
+            } finally {
+              setGeneratingDoc(false);
+            }
           },
         },
       ]);
@@ -256,6 +274,45 @@ export default function PODetailScreen() {
             </View>
           ) : null}
         </View>
+
+        {/* PO Document buttons */}
+        {(po.document_uri || generatingDoc) && (
+          <View style={styles.docRow}>
+            {generatingDoc ? (
+              <Text style={styles.generatingText}>Generating document…</Text>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={styles.docBtnOutline}
+                  onPress={() => po.document_uri && Linking.openURL(po.document_uri)}
+                >
+                  <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                    <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke={colors.amber} strokeWidth={1.8} strokeLinejoin="round" />
+                    <Path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke={colors.amber} strokeWidth={1.8} strokeLinecap="round" />
+                  </Svg>
+                  <Text style={styles.docBtnOutlineText}>View PO Document</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.docBtnFilled}
+                  onPress={async () => {
+                    if (!po.document_uri) return;
+                    const available = await Sharing.isAvailableAsync();
+                    if (available) {
+                      await Sharing.shareAsync(po.document_uri, { mimeType: 'application/pdf', dialogTitle: `Share ${po.po_number}` });
+                    } else {
+                      Alert.alert('Sharing not available', 'Sharing is not supported on this device.');
+                    }
+                  }}
+                >
+                  <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                    <Path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" stroke="#000" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                  </Svg>
+                  <Text style={styles.docBtnFilledText}>Share PO</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        )}
 
         {/* Delivery Card */}
         {deliverySchedule && (
@@ -429,6 +486,35 @@ export default function PODetailScreen() {
                 </TouchableOpacity>
               )}
             </View>
+          )}
+          {/* Soft-delete for draft or closed POs */}
+          {(po.status === 'draft' || po.status === 'closed') && (
+            <TouchableOpacity
+              style={styles.deleteLink}
+              onPress={() => {
+                Alert.alert(
+                  'Delete PO',
+                  'You can recover it from Deleted POs.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Delete',
+                      style: 'destructive',
+                      onPress: async () => {
+                        try {
+                          await softDeletePO(po!.id);
+                          router.back();
+                        } catch (e) {
+                          Alert.alert('Error', String(e));
+                        }
+                      },
+                    },
+                  ]
+                );
+              }}
+            >
+              <Text style={styles.deleteLinkText}>Delete PO</Text>
+            </TouchableOpacity>
           )}
         </View>
 
@@ -665,6 +751,43 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     textDecorationLine: 'underline',
   },
+
+  // Document buttons
+  docRow: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  generatingText: { fontSize: 13, color: colors.amber, fontFamily: 'Inter_400Regular' },
+  docBtnOutline: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(239,159,39,0.3)',
+    backgroundColor: 'rgba(239,159,39,0.06)',
+  },
+  docBtnOutlineText: { fontSize: 13, fontWeight: '700', color: colors.amber, fontFamily: 'Inter_700Bold' },
+  docBtnFilled: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: colors.amber,
+  },
+  docBtnFilledText: { fontSize: 13, fontWeight: '700', color: '#000', fontFamily: 'Inter_700Bold' },
+
+  // Soft delete
+  deleteLink: { alignItems: 'center', paddingVertical: 12, marginTop: 4 },
+  deleteLinkText: { fontSize: 13, color: colors.red, fontFamily: 'Inter_400Regular' },
 
   cancelRemainingBtn: {
     paddingVertical: 14,
