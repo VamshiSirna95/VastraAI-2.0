@@ -1,8 +1,23 @@
-import { createVendor, createProduct, getProductCount, createTrip, createPO, addPOItem, updateTripSpent } from './database';
+import { createVendor, createProduct, getProductCount, createTrip, getTrips, createPO, addPOItem, updateTripSpent } from './database';
 
 export async function seedDemoData(): Promise<void> {
   const count = await getProductCount();
-  if (count > 0) return;
+
+  // Always ensure demo trip exists even if products were seeded before
+  if (count > 0) {
+    const existingTrips = await getTrips();
+    if (existingTrips.length === 0) {
+      await createTrip({
+        name: 'March Week 4 — Begum Bazaar',
+        budget: 500000,
+        vendor_area: 'Begum Bazaar, Hyderabad',
+        status: 'active',
+        start_date: '28-Mar-2026',
+        end_date: '31-Mar-2026',
+      });
+    }
+    return;
+  }
 
   // ── Vendors ────────────────────────────────────────────────────────────────
   const v1 = await createVendor({
