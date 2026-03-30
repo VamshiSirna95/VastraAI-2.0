@@ -4,7 +4,7 @@ import {
   TextInput, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import GlassPicker from '../../components/ui/GlassPicker';
@@ -14,8 +14,11 @@ import {
   createPO, updatePO, getPOById, addPOItem, updatePOItem, removePOItem,
   getVendors, getTrips, updateTripSpent,
 } from '../../db/database';
-import { calculateDelivery, type DeliverySchedule } from '../../services/delivery';
+import { calculateDelivery, formatDate, type DeliverySchedule } from '../../services/delivery';
 import type { PurchaseOrder, POItem, Vendor, PurchaseTrip } from '../../db/types';
+import { SIZE_TEMPLATES } from '../../db/types';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -28,97 +31,71 @@ function formatINR(val: number): string {
   return '₹' + val.toLocaleString('en-IN');
 }
 
-// ── Delivery Calculator inline ────────────────────────────────────────────────
+const SIZE_COLS = ['size_s', 'size_m', 'size_l', 'size_xl', 'size_xxl', 'size_free'] as const;
+type SizeCol = typeof SIZE_COLS[number];
 
-interface DeliveryCalcProps {
-  onSchedule: (s: DeliverySchedule | null) => void;
-  initialSchedule: DeliverySchedule | null;
+/** Map garment-type size labels → DB columns by positional index */
+function sizesToDB(garmentType: string, sizes: Record<string, number>): Pick<POItem, SizeCol> {
+  const labels = SIZE_TEMPLATES[garmentType] ?? SIZE_TEMPLATES['default'];
+  const result: Pick<POItem, SizeCol> = { size_s: 0, size_m: 0, size_l: 0, size_xl: 0, size_xxl: 0, size_free: 0 };
+  if (labels.length === 1 && labels[0] === 'Free') {
+    result.size_free = sizes['Free'] ?? 0;
+    return result;
+  }
+  labels.forEach((label, idx) => {
+    if (idx < SIZE_COLS.length) {
+      result[SIZE_COLS[idx]] = sizes[label] ?? 0;
+    }
+  });
+  return result;
 }
 
-function DeliveryCalc({ onSchedule, initialSchedule }: DeliveryCalcProps) {
-  const [stock, setStock] = useState('');
-  const [dailySales, setDailySales] = useState('');
-  const [schedule, setSchedule] = useState<DeliverySchedule | null>(initialSchedule);
-
-  const calculate = useCallback(async () => {
-    const s = parseFloat(stock) || 0;
-    const d = parseFloat(dailySales) || 0;
-    const result = await calculateDelivery(s, d);
-    setSchedule(result);
-    onSchedule(result);
-  }, [stock, dailySales, onSchedule]);
-
-  useEffect(() => {
-    if (stock || dailySales) { calculate(); }
-  }, [stock, dailySales, calculate]);
-
-  return (
-    <View style={styles.deliveryCalcArea}>
-      <Text style={styles.sectionLabel}>DELIVERY CALCULATOR</Text>
-      <View style={styles.deliveryInputRow}>
-        <View style={styles.deliveryInputWrap}>
-          <Text style={styles.fieldLabel}>Current Stock</Text>
-          <TextInput
-            style={styles.smallInput}
-            value={stock}
-            onChangeText={setStock}
-            keyboardType="numeric"
-            placeholder="0"
-            placeholderTextColor="rgba(255,255,255,0.2)"
-          />
-        </View>
-        <View style={styles.deliveryInputWrap}>
-          <Text style={styles.fieldLabel}>Daily Avg Sales</Text>
-          <TextInput
-            style={styles.smallInput}
-            value={dailySales}
-            onChangeText={setDailySales}
-            keyboardType="numeric"
-            placeholder="0"
-            placeholderTextColor="rgba(255,255,255,0.2)"
-          />
-        </View>
-      </View>
-      {schedule && <DeliveryCard schedule={schedule} />}
-    </View>
-  );
+/** Map DB columns → garment-type size labels by positional index */
+function dbToSizes(garmentType: string, item: POItem): Record<string, number> {
+  const labels = SIZE_TEMPLATES[garmentType] ?? SIZE_TEMPLATES['default'];
+  if (labels.length === 1 && labels[0] === 'Free') return { 'Free': item.size_free };
+  const colValues = [item.size_s, item.size_m, item.size_l, item.size_xl, item.size_xxl, item.size_free];
+  const out: Record<string, number> = {};
+  labels.forEach((label, idx) => { out[label] = colValues[idx] ?? 0; });
+  return out;
 }
+
+type EnrichedItem = POItem & { design_name?: string; garment_type?: string; purchase_price?: number };
 
 // ── Article card ──────────────────────────────────────────────────────────────
 
 interface ArticleCardProps {
-  item: POItem & { design_name?: string; garment_type?: string; purchase_price?: number };
+  item: EnrichedItem;
   expanded: boolean;
   onToggle: () => void;
-  onUpdate: (sizes: Record<string, number>, totalQty: number, totalPrice: number) => void;
+  localSizes: Record<string, number>;
+  onSizesChange: (sizes: Record<string, number>, totalQty: number, totalPrice: number) => void;
   onRemove: () => void;
   unitPrice: number;
   onUnitPriceChange: (val: number) => void;
 }
 
-function ArticleCard({ item, expanded, onToggle, onUpdate, onRemove, unitPrice, onUnitPriceChange }: ArticleCardProps) {
-  const [schedule, setSchedule] = useState<DeliverySchedule | null>(null);
+function ArticleCard({
+  item, expanded, onToggle, localSizes, onSizesChange, onRemove, unitPrice, onUnitPriceChange,
+}: ArticleCardProps) {
   const name = item.design_name ?? 'Unknown product';
   const garmentType = item.garment_type ?? 'default';
-
-  const currentSizes: Record<string, number> = {
-    S: item.size_s, M: item.size_m, L: item.size_l,
-    XL: item.size_xl, XXL: item.size_xxl, Free: item.size_free,
-  };
+  const totalQty = Object.values(localSizes).reduce((a, b) => a + b, 0);
+  const totalPrice = totalQty * unitPrice;
 
   return (
     <View style={styles.articleCard}>
       <TouchableOpacity style={styles.articleHeader} onPress={onToggle} activeOpacity={0.75}>
         <View style={[styles.articleThumb, { backgroundColor: hexToRgba(colors.teal, 0.12) }]}>
           <Text style={[styles.thumbInitial, { color: colors.teal }]}>
-            {name[0]?.toUpperCase() ?? '?'}
+            {(name[0] ?? '?').toUpperCase()}
           </Text>
         </View>
         <View style={styles.articleHeaderBody}>
           <Text style={styles.articleName} numberOfLines={1}>{name}</Text>
           <Text style={styles.articleSub}>{garmentType}</Text>
-          {item.total_qty > 0 && (
-            <Text style={styles.articleQtySummary}>{item.total_qty} pcs · {formatINR(item.total_price)}</Text>
+          {totalQty > 0 && (
+            <Text style={styles.articleQtySummary}>{totalQty} pcs · {formatINR(totalPrice)}</Text>
           )}
         </View>
         <TouchableOpacity onPress={onRemove} style={styles.removeBtn} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
@@ -134,30 +111,19 @@ function ArticleCard({ item, expanded, onToggle, onUpdate, onRemove, unitPrice, 
             <Text style={styles.fieldLabel}>Unit Price (₹)</Text>
             <TextInput
               style={styles.unitPriceInput}
-              value={String(unitPrice || '')}
+              value={unitPrice ? String(unitPrice) : ''}
               onChangeText={(v) => onUnitPriceChange(parseFloat(v) || 0)}
               keyboardType="numeric"
-              placeholder="0"
+              placeholder="Enter price"
               placeholderTextColor="rgba(255,255,255,0.2)"
             />
           </View>
           <SizeQtyMatrix
             garmentType={garmentType}
-            sizes={currentSizes}
+            sizes={localSizes}
             unitPrice={unitPrice}
-            onChange={onUpdate}
+            onChange={onSizesChange}
           />
-          <DeliveryCalc onSchedule={setSchedule} initialSchedule={schedule} />
-          <View style={styles.itemNotesWrap}>
-            <Text style={styles.fieldLabel}>Item Notes</Text>
-            <TextInput
-              style={styles.itemNotesInput}
-              value={item.notes ?? ''}
-              placeholder="e.g. Shorten sleeve 2 inches"
-              placeholderTextColor="rgba(255,255,255,0.2)"
-              multiline
-            />
-          </View>
         </View>
       )}
     </View>
@@ -168,57 +134,90 @@ function ArticleCard({ item, expanded, onToggle, onUpdate, onRemove, unitPrice, 
 
 export default function NewPOScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ selectedProductIds?: string }>();
+  const params = useLocalSearchParams<{ editId?: string; tripId?: string }>();
 
-  const [poId, setPoId] = useState<string | null>(null);
+  const isEditing = !!params.editId;
+  const [poId, setPoId] = useState<string | null>(params.editId ?? null);
   const [po, setPo] = useState<Partial<PurchaseOrder>>({ status: 'draft' });
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [trips, setTrips] = useState<PurchaseTrip[]>([]);
-  const [items, setItems] = useState<(POItem & { design_name?: string; garment_type?: string; purchase_price?: number })[]>([]);
-  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
+  const [items, setItems] = useState<EnrichedItem[]>([]);
+  const [localSizes, setLocalSizes] = useState<Record<string, Record<string, number>>>({});
   const [unitPrices, setUnitPrices] = useState<Record<string, number>>({});
+  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [deliverySchedule, setDeliverySchedule] = useState<DeliverySchedule | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Load vendors + trips on mount; pre-fill if editing
   useEffect(() => {
     (async () => {
-      const [vs, ts] = await Promise.all([getVendors(), getTrips('active')]);
+      const [vs, ts] = await Promise.all([getVendors(), getTrips()]);
       setVendors(vs);
-      setTrips(ts);
+      setTrips(ts.filter((t) => t.status === 'active' || t.status === 'planning' as string));
+
+      if (params.tripId && !isEditing) {
+        setPo((prev) => ({ ...prev, trip_id: params.tripId }));
+      }
+
+      if (isEditing && params.editId) {
+        const existing = await getPOById(params.editId);
+        if (existing) {
+          setPo({
+            vendor_id: existing.vendor_id,
+            trip_id: existing.trip_id,
+            status: existing.status,
+          });
+          setNotes(existing.notes ?? '');
+          setDeliveryDate(existing.delivery_date ?? '');
+        }
+      }
     })();
   }, []);
 
-  // Handle products returned from product picker
+  // Load/reload items from DB whenever screen comes into focus
+  useFocusEffect(useCallback(() => {
+    if (poId) reloadItems();
+  }, [poId]));
+
+  // Compute smart delivery when vendor is selected
   useEffect(() => {
-    if (!params.selectedProductIds || !poId) return;
-    const ids: string[] = JSON.parse(params.selectedProductIds);
-    (async () => {
-      for (const productId of ids) {
-        const alreadyAdded = items.some((i) => i.product_id === productId);
-        if (!alreadyAdded) {
-          await addPOItem({ po_id: poId, product_id: productId });
-        }
-      }
-      await reloadItems();
-    })();
-  }, [params.selectedProductIds]);
+    calculateDelivery(0, 1).then((s) => {
+      setDeliverySchedule(s);
+      if (!deliveryDate) setDeliveryDate(formatDate(s.storeShelfDate));
+    });
+  }, [po.vendor_id]);
 
   const reloadItems = async () => {
     if (!poId) return;
     const updated = await getPOById(poId);
     if (updated?.items) {
-      const enriched = updated.items as (POItem & { design_name?: string; garment_type?: string; purchase_price?: number })[];
+      const enriched = updated.items as EnrichedItem[];
       setItems(enriched);
-      const prices: Record<string, number> = {};
-      enriched.forEach((i) => { prices[i.id] = i.unit_price; });
-      setUnitPrices((prev) => ({ ...prices, ...prev }));
+
+      // Init localSizes from DB (garment-type-aware)
+      const newLocalSizes: Record<string, Record<string, number>> = {};
+      const newUnitPrices: Record<string, number> = {};
+      enriched.forEach((i) => {
+        newLocalSizes[i.id] = dbToSizes(i.garment_type ?? 'default', i);
+        // Use purchase_price as fallback when unit_price is 0
+        newUnitPrices[i.id] = i.unit_price > 0 ? i.unit_price : ((i.purchase_price ?? 0));
+      });
+      setLocalSizes((prev) => ({ ...newLocalSizes, ...prev }));
+      setUnitPrices((prev) => {
+        const merged: Record<string, number> = { ...newUnitPrices };
+        // keep user-edited prices
+        Object.keys(prev).forEach((k) => { if (prev[k] > 0) merged[k] = prev[k]; });
+        return merged;
+      });
     }
   };
 
   const ensurePO = async (): Promise<string> => {
     if (poId) return poId;
     if (!po.vendor_id) throw new Error('Select a vendor first');
-    const id = await createPO({ ...po, notes });
+    const id = await createPO({ ...po, notes, delivery_date: deliveryDate || undefined });
     setPoId(id);
     return id;
   };
@@ -228,7 +227,7 @@ export default function NewPOScreen() {
     setSaving(true);
     try {
       const id = await ensurePO();
-      await updatePO(id, { ...po, notes, status: 'draft' });
+      await updatePO(id, { ...po, notes, delivery_date: deliveryDate || undefined, status: 'draft' });
       if (po.trip_id) await updateTripSpent(po.trip_id);
       router.back();
     } catch (e) {
@@ -243,9 +242,9 @@ export default function NewPOScreen() {
     setSaving(true);
     try {
       const id = await ensurePO();
-      await updatePO(id, { ...po, notes, status: 'sent' });
+      await updatePO(id, { ...po, notes, delivery_date: deliveryDate || undefined, status: 'sent' });
       if (po.trip_id) await updateTripSpent(po.trip_id);
-      router.push(`/po/${id}`);
+      router.replace(`/po/${id}`);
     } catch (e) {
       Alert.alert('Error', String(e));
     } finally {
@@ -253,15 +252,37 @@ export default function NewPOScreen() {
     }
   };
 
-  const totalValue = items.reduce((sum, i) => sum + i.total_price, 0);
-  const totalQty = items.reduce((sum, i) => sum + i.total_qty, 0);
+  // Compute live totals from local sizes state
+  const totalQty = items.reduce((sum, i) => {
+    const sizes = localSizes[i.id] ?? {};
+    return sum + Object.values(sizes).reduce((a, b) => a + b, 0);
+  }, 0);
+  const totalValue = items.reduce((sum, i) => {
+    const sizes = localSizes[i.id] ?? {};
+    const qty = Object.values(sizes).reduce((a, b) => a + b, 0);
+    return sum + qty * (unitPrices[i.id] ?? 0);
+  }, 0);
+  const totalArticles = items.filter((i) => {
+    const sizes = localSizes[i.id] ?? {};
+    return Object.values(sizes).some((v) => v > 0);
+  }).length;
+
   const selectedTrip = trips.find((t) => t.id === po.trip_id);
   const spentAfter = (selectedTrip?.spent ?? 0) + totalValue;
-  const budgetPct = selectedTrip ? Math.round((spentAfter / selectedTrip.budget) * 100) : 0;
+  const budgetPct = selectedTrip ? Math.round((spentAfter / (selectedTrip.budget || 1)) * 100) : 0;
   const overBudget = selectedTrip && spentAfter > selectedTrip.budget;
 
+  // Build trip picker options showing budget
+  const tripPickerOptions = [
+    'No trip',
+    ...trips.map((t) => `${t.name} (${formatINR(t.budget)})`),
+    '＋ New Trip',
+  ];
+  const selectedTripDisplay = po.trip_id
+    ? (trips.find((t) => t.id === po.trip_id) ? `${trips.find((t) => t.id === po.trip_id)!.name} (${formatINR(trips.find((t) => t.id === po.trip_id)!.budget)})` : 'No trip')
+    : 'No trip';
+
   const vendorNames = vendors.map((v) => v.name);
-  const tripNames = ['No trip', ...trips.map((t) => t.name)];
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -274,7 +295,7 @@ export default function NewPOScreen() {
               <Path d="M19 12H5M5 12l7-7M5 12l7 7" stroke="rgba(255,255,255,0.7)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
             </Svg>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>New Purchase Order</Text>
+          <Text style={styles.headerTitle}>{isEditing ? 'Edit Purchase Order' : 'New Purchase Order'}</Text>
         </View>
 
         {/* PO Info */}
@@ -282,7 +303,7 @@ export default function NewPOScreen() {
           <Text style={styles.sectionLabel}>PO INFO</Text>
           <View style={styles.poNumberRow}>
             <Text style={styles.fieldLabel}>PO Number</Text>
-            <Text style={styles.poNumberValue}>Auto-generated on save</Text>
+            <Text style={styles.poNumberValue}>{poId ? '—' : 'Auto-generated on save'}</Text>
           </View>
           <GlassPicker
             label="Vendor"
@@ -296,19 +317,29 @@ export default function NewPOScreen() {
           />
           <GlassPicker
             label="Purchase Trip"
-            options={tripNames}
-            value={po.trip_id ? trips.find((t) => t.id === po.trip_id)?.name : 'No trip'}
+            options={tripPickerOptions}
+            value={selectedTripDisplay}
             placeholder="No trip"
-            onChange={(name) => {
-              if (name === 'No trip') {
+            onChange={(val) => {
+              if (val === 'No trip') {
                 setPo((prev) => ({ ...prev, trip_id: undefined }));
+              } else if (val === '＋ New Trip') {
+                router.push('/po/trip/new');
               } else {
-                const t = trips.find((tt) => tt.name === name);
+                const t = trips.find((tt) => val.startsWith(tt.name));
                 if (t) setPo((prev) => ({ ...prev, trip_id: t.id }));
               }
             }}
           />
-          <Text style={styles.fieldLabel}>Notes</Text>
+          <Text style={styles.fieldLabel}>Requested Delivery Date (DD-Mon-YYYY)</Text>
+          <TextInput
+            style={styles.inlineInput}
+            value={deliveryDate}
+            onChangeText={setDeliveryDate}
+            placeholder="e.g. 15-Apr-2026"
+            placeholderTextColor="rgba(255,255,255,0.2)"
+          />
+          <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Notes</Text>
           <TextInput
             style={styles.notesInput}
             value={notes}
@@ -319,6 +350,13 @@ export default function NewPOScreen() {
             numberOfLines={3}
           />
         </View>
+
+        {/* Smart Delivery Recommendation */}
+        {deliverySchedule && (
+          <View style={styles.deliverySection}>
+            <DeliveryCard schedule={deliverySchedule} />
+          </View>
+        )}
 
         {/* Articles */}
         <View style={styles.glassCard}>
@@ -335,24 +373,29 @@ export default function NewPOScreen() {
               item={item}
               expanded={expandedItemId === item.id}
               onToggle={() => setExpandedItemId(expandedItemId === item.id ? null : item.id)}
-              unitPrice={unitPrices[item.id] ?? item.unit_price}
+              localSizes={localSizes[item.id] ?? dbToSizes(item.garment_type ?? 'default', item)}
+              unitPrice={unitPrices[item.id] ?? 0}
               onUnitPriceChange={(val) => {
                 setUnitPrices((prev) => ({ ...prev, [item.id]: val }));
-                updatePOItem(item.id, { unit_price: val }).then(reloadItems);
+                // Persist to DB in background
+                const dbSizes = sizesToDB(item.garment_type ?? 'default', localSizes[item.id] ?? {});
+                updatePOItem(item.id, { ...dbSizes, unit_price: val });
               }}
-              onUpdate={(sizes, totalQty, totalPrice) => {
-                updatePOItem(item.id, {
-                  size_s: sizes['S'] ?? 0,
-                  size_m: sizes['M'] ?? 0,
-                  size_l: sizes['L'] ?? 0,
-                  size_xl: sizes['XL'] ?? 0,
-                  size_xxl: sizes['XXL'] ?? 0,
-                  size_free: sizes['Free'] ?? 0,
-                  unit_price: unitPrices[item.id] ?? item.unit_price,
-                }).then(reloadItems);
+              onSizesChange={(sizes, _qty, _price) => {
+                // Immediately update local state for live summary
+                setLocalSizes((prev) => ({ ...prev, [item.id]: sizes }));
+                // Persist to DB in background
+                const dbSizes = sizesToDB(item.garment_type ?? 'default', sizes);
+                updatePOItem(item.id, { ...dbSizes, unit_price: unitPrices[item.id] ?? 0 });
               }}
               onRemove={() => {
                 removePOItem(item.id).then(reloadItems);
+                setLocalSizes((prev) => {
+                  const next = { ...prev };
+                  delete next[item.id];
+                  return next;
+                });
+                setItems((prev) => prev.filter((i) => i.id !== item.id));
               }}
             />
           ))}
@@ -363,7 +406,7 @@ export default function NewPOScreen() {
               try {
                 const id = await ensurePO();
                 router.push(`/po/select-products?poId=${id}`);
-              } catch (e) {
+              } catch {
                 Alert.alert('Required', 'Please select a vendor first');
               }
             }}
@@ -380,7 +423,7 @@ export default function NewPOScreen() {
           <Text style={styles.sectionLabel}>SUMMARY</Text>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Total Articles</Text>
-            <Text style={styles.summaryValue}>{items.length}</Text>
+            <Text style={styles.summaryValue}>{totalArticles}</Text>
           </View>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Total Quantity</Text>
@@ -451,6 +494,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
     fontFamily: 'Inter_800ExtraBold',
+    flex: 1,
   },
 
   glassCard: {
@@ -465,6 +509,10 @@ const styles = StyleSheet.create({
   summaryCard: {
     backgroundColor: 'rgba(93,202,165,0.04)',
     borderColor: 'rgba(93,202,165,0.12)',
+  },
+  deliverySection: {
+    marginHorizontal: 20,
+    marginBottom: 16,
   },
 
   sectionLabel: {
@@ -485,10 +533,10 @@ const styles = StyleSheet.create({
 
   poNumberRow: { marginBottom: 12 },
   poNumberValue: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '600',
     color: colors.teal,
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'Inter_500Medium',
     marginTop: 4,
   },
 
@@ -498,6 +546,17 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.3)',
     fontFamily: 'Inter_700Bold',
     marginBottom: 6,
+  },
+  inlineInput: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#FFFFFF',
+    fontFamily: 'Inter_400Regular',
   },
   notesInput: {
     backgroundColor: 'rgba(255,255,255,0.04)',
@@ -578,7 +637,11 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 12,
   },
-  unitPriceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  unitPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   unitPriceInput: {
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1,
@@ -589,38 +652,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#FFFFFF',
     fontFamily: 'Inter_500Medium',
-    width: 100,
+    width: 120,
     textAlign: 'right',
-  },
-
-  deliveryCalcArea: { marginTop: 4 },
-  deliveryInputRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
-  deliveryInputWrap: { flex: 1 },
-  smallInput: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 15,
-    color: '#FFFFFF',
-    fontFamily: 'Inter_500Medium',
-    textAlign: 'center',
-  },
-  itemNotesWrap: { marginTop: 4 },
-  itemNotesInput: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 14,
-    color: '#FFFFFF',
-    fontFamily: 'Inter_400Regular',
-    minHeight: 56,
-    textAlignVertical: 'top',
   },
 
   addArticleBtn: {
@@ -667,10 +700,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginVertical: 8,
   },
-  budgetBarFill: {
-    height: 6,
-    borderRadius: 3,
-  },
+  budgetBarFill: { height: 6, borderRadius: 3 },
   budgetPct: {
     fontSize: 12,
     color: 'rgba(255,255,255,0.35)',

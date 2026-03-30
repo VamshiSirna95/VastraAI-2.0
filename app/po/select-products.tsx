@@ -94,7 +94,12 @@ export default function SelectProductsScreen() {
     if (!poId || selectedIds.size === 0) return;
     setAdding(true);
     for (const productId of selectedIds) {
-      await addPOItem({ po_id: poId, product_id: productId });
+      const product = products.find((p) => p.id === productId);
+      await addPOItem({
+        po_id: poId,
+        product_id: productId,
+        unit_price: product?.purchase_price ?? 0,
+      });
     }
     setAdding(false);
     router.back();
