@@ -162,7 +162,7 @@ export async function updateProduct(id: string, updates: Partial<Product>): Prom
   );
   if (fields.length === 0) return;
   const setClause = fields.map((f) => `${f} = ?`).join(', ');
-  const values = fields.map((f) => (updates as Record<string, unknown>)[f] ?? null);
+  const values = fields.map((f) => (updates as Record<string, unknown>)[f] ?? null) as (string | number | null)[];
   await db.runAsync(
     `UPDATE products SET ${setClause}, updated_at = datetime('now') WHERE id = ?`,
     [...values, id]
@@ -215,6 +215,7 @@ export async function getProductPhotos(productId: string): Promise<ProductPhoto[
     ...r,
     photo_type: r.photo_type as ProductPhoto['photo_type'],
     is_primary: r.is_primary === 1,
+    quality_score: r.quality_score ?? undefined,
   }));
 }
 

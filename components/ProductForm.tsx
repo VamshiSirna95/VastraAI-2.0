@@ -8,6 +8,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
@@ -19,8 +20,11 @@ import {
   getAttributeTemplate,
   setProductCustomAttr,
   getProductCustomAttrs,
+  getProductPhotos,
+  addProductPhoto as dbAddPhoto,
+  deleteProductPhoto,
 } from '../db/database';
-import type { Product, Vendor } from '../db/types';
+import type { Product, Vendor, ProductPhoto } from '../db/types';
 import {
   GARMENT_TYPES,
   COLORS,
@@ -32,6 +36,7 @@ import {
 } from '../db/types';
 import GlassInput from './ui/GlassInput';
 import GlassPicker from './ui/GlassPicker';
+import PhotoViewer from './PhotoViewer';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -57,6 +62,24 @@ interface ProductFormProps {
   productId?: string;
   aiConfidence?: number;
   aiFields?: AIFields;
+}
+
+// ── Photo type badge config ───────────────────────────────────────────────────
+
+const PHOTO_TYPE_CONFIG: Record<string, { label: string; color: string }> = {
+  main:   { label: 'MAIN',   color: colors.teal },
+  back:   { label: 'BACK',   color: colors.blue },
+  tag:    { label: 'TAG',    color: colors.amber },
+  detail: { label: 'DETAIL', color: colors.purple },
+  fabric: { label: 'FABRIC', color: colors.pink },
+  grn:    { label: 'GRN',    color: colors.red },
+};
+
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
 }
 
 // ── AI badge ──────────────────────────────────────────────────────────────────
@@ -146,9 +169,29 @@ export default function ProductForm({ initial, productId, aiConfidence, aiFields
   const [newAttrName, setNewAttrName] = useState('');
   const [newAttrValue, setNewAttrValue] = useState('');
 
+  // Photos
+  const [photos, setPhotos] = useState<ProductPhoto[]>(initial?.photos ?? []);
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerIndex, setViewerIndex] = useState(0);
+
   // Vendors
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // Load photos for existing product
+  useEffect(() => {
+    if (!productId) return;
+    getProductPhotos(productId).then(setPhotos).catch(() => {});
+  }, [productId]);
+
+  const handlePhotoDelete = (id: string) => {
+    setPhotos((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  const openPhotoViewer = (index: number) => {
+    setViewerIndex(index);
+    setViewerVisible(true);
+  };
 
   // Load vendors
   useEffect(() => {
@@ -251,6 +294,84 @@ export default function ProductForm({ initial, productId, aiConfidence, aiFields
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+
+        {/* ── Section 1: Photos ─── */}
+        <View style={styles.photoSection}>
+          <Text style={styles.sectionTitle}>Photos</Text>
+
+          {photos.length === 0 ? (
+            /* No-photo placeholder */
+            <View style={styles.noPhotoCard}>
+              <Svg width={32} height={32} viewBox="0 0 24 24" fill="none">
+                <Path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"
+                  stroke="rgba(255,255,255,0.2)" strokeWidth={1.8} strokeLinejoin="round" />
+                <Path d="M12 17a4 4 0 100-8 4 4 0 000 8z"
+                  stroke="rgba(255,255,255,0.2)" strokeWidth={1.8} />
+              </Svg>
+              <Text style={styles.noPhotoText}>No photos yet</Text>
+              <TouchableOpacity
+                style={styles.openCameraBtn}
+                onPress={() => router.push(
+                  productId
+                    ? { pathname: '/(tabs)/scan', params: { productId } }
+                    : '/(tabs)/scan'
+                )}
+              >
+                <Text style={styles.openCameraBtnText}>Open Camera</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            /* Photo strip */
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.photoStripContent}
+            >
+              {photos.map((photo, i) => {
+                const cfg = PHOTO_TYPE_CONFIG[photo.photo_type] ?? { label: photo.photo_type.toUpperCase(), color: '#FFFFFF' };
+                return (
+                  <TouchableOpacity
+                    key={photo.id}
+                    style={[styles.photoThumb, photo.is_primary && styles.photoThumbPrimary]}
+                    onPress={() => openPhotoViewer(i)}
+                    onLongPress={() => {
+                      Alert.alert('Photo Options', undefined, [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Delete',
+                          style: 'destructive',
+                          onPress: async () => {
+                            await deleteProductPhoto(photo.id);
+                            handlePhotoDelete(photo.id);
+                          },
+                        },
+                      ]);
+                    }}
+                  >
+                    <Image source={{ uri: photo.uri }} style={styles.photoThumbImg} resizeMode="cover" />
+                    <View style={[styles.photoTypeBadge, { backgroundColor: hexToRgba(cfg.color, 0.2) }]}>
+                      <Text style={[styles.photoTypeBadgeText, { color: cfg.color }]}>{cfg.label}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+
+              {/* Add photo button */}
+              <TouchableOpacity
+                style={styles.addPhotoBtn}
+                onPress={() => router.push(
+                  productId
+                    ? { pathname: '/(tabs)/scan', params: { productId } }
+                    : '/(tabs)/scan'
+                )}
+              >
+                <Svg width={28} height={28} viewBox="0 0 24 24" fill="none">
+                  <Path d="M12 5v14M5 12h14" stroke="rgba(255,255,255,0.35)" strokeWidth={2.5} strokeLinecap="round" />
+                </Svg>
+              </TouchableOpacity>
+            </ScrollView>
+          )}
+        </View>
 
         {/* ── Section 2: Basic Info ─── */}
         <Section title="Basic Info">
@@ -489,6 +610,14 @@ export default function ProductForm({ initial, productId, aiConfidence, aiFields
           <Text style={styles.saveBtnText}>{saving ? 'Saving…' : 'Save Product'}</Text>
         </TouchableOpacity>
       </View>
+
+      <PhotoViewer
+        photos={photos}
+        initialIndex={viewerIndex}
+        visible={viewerVisible}
+        onClose={() => setViewerVisible(false)}
+        onDelete={handlePhotoDelete}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -668,6 +797,90 @@ const styles = StyleSheet.create({
     height: 6,
     backgroundColor: '#5DCAA5',
     borderRadius: 3,
+  },
+
+  // Photo strip
+  photoSection: {
+    marginBottom: 20,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 16,
+    padding: 16,
+  },
+  noPhotoCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    gap: 10,
+  },
+  noPhotoText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.25)',
+    fontFamily: 'Inter_400Regular',
+  },
+  openCameraBtn: {
+    marginTop: 4,
+    backgroundColor: 'rgba(93,202,165,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(93,202,165,0.25)',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  openCameraBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#5DCAA5',
+    fontFamily: 'Inter_700Bold',
+  },
+  photoStripContent: {
+    paddingRight: 4,
+    gap: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  photoThumb: {
+    width: 72,
+    height: 72,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  photoThumbPrimary: {
+    borderWidth: 2,
+    borderColor: '#5DCAA5',
+  },
+  photoThumbImg: {
+    width: '100%',
+    height: '100%',
+  },
+  photoTypeBadge: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  photoTypeBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: 0.5,
+  },
+  addPhotoBtn: {
+    width: 72,
+    height: 72,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   footer: {
