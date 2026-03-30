@@ -18,6 +18,7 @@
     "expo-camera": "~16.0.18",
     "expo-file-system": "~18.0.12",
     "expo-font": "~13.0.4",
+    "expo-image-picker": "^55.0.14",
     "expo-router": "~4.0.17",
     "expo-splash-screen": "~0.29.21",
     "expo-sqlite": "~15.1.4",
