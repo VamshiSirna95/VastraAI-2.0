@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path, Polyline } from 'react-native-svg';
 import { colors } from '../../constants/theme';
+import ModuleCard, { type PatternType, type MetricData } from '../../components/ModuleCard';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // 14px padding on each side + 8px gap between 2 columns
@@ -88,45 +89,14 @@ function QuickAction({ label, color, icon }: QuickActionProps) {
   );
 }
 
-// ─── Module Card ──────────────────────────────────────────────────────────────
+// ─── Module Data Types ────────────────────────────────────────────────────────
 
-interface MetricData {
-  value: string;
-  label: string;
-  color: string;
-}
-
-interface ModuleCardData {
+interface ModuleData {
   name: string;
   accent: string;
   title: string;
   metrics: MetricData[];
-}
-
-function ModuleCard({ name, accent, title, metrics }: ModuleCardData) {
-  return (
-    <View style={[styles.moduleCard, { width: CARD_WIDTH }]}>
-      <View style={[styles.moduleTop, { backgroundColor: hexToRgba(accent, 0.15) }]} />
-      <View style={styles.moduleBottom}>
-        <View
-          style={[styles.eyebrowTag, { backgroundColor: hexToRgba(accent, 0.12) }]}
-        >
-          <Text style={[styles.eyebrowText, { color: accent }]}>{name}</Text>
-        </View>
-        <Text style={styles.moduleTitle}>{title}</Text>
-        <View style={styles.metricsRow}>
-          {metrics.map((metric, index) => (
-            <View key={index} style={styles.metric}>
-              <Text style={[styles.metricValue, { color: metric.color }]}>
-                {metric.value}
-              </Text>
-              <Text style={styles.metricLabel}>{metric.label}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-    </View>
-  );
+  patternType: PatternType;
 }
 
 // ─── Alert Item ───────────────────────────────────────────────────────────────
@@ -147,11 +117,12 @@ function AlertItem({ dotColor, children }: AlertItemProps) {
 
 // ─── Module Data ──────────────────────────────────────────────────────────────
 
-const modules: ModuleCardData[] = [
+const modules: ModuleData[] = [
   {
     name: 'Enrichment',
     accent: colors.teal,
     title: 'Tag attributes',
+    patternType: 'wave',
     metrics: [
       { value: '847', label: 'Tagged', color: colors.teal },
       { value: '92%', label: 'AI acc.', color: colors.textPrimary },
@@ -161,6 +132,7 @@ const modules: ModuleCardData[] = [
     name: 'Purchase',
     accent: colors.amber,
     title: 'Order builder',
+    patternType: 'grid',
     metrics: [
       { value: '12', label: 'Active', color: colors.amber },
       { value: '₹3.4L', label: 'Week', color: colors.textPrimary },
@@ -170,6 +142,7 @@ const modules: ModuleCardData[] = [
     name: 'Warehouse',
     accent: colors.blue,
     title: 'GRN verify',
+    patternType: 'hexdots',
     metrics: [
       { value: '3', label: 'Pending', color: colors.red },
       { value: '98%', label: 'Accept', color: colors.teal },
@@ -179,6 +152,7 @@ const modules: ModuleCardData[] = [
     name: 'Intelligence',
     accent: colors.pink,
     title: 'Similarity',
+    patternType: 'blobs',
     metrics: [
       { value: '24', label: 'Matches', color: colors.pink },
       { value: '₹48K', label: 'Saved', color: colors.teal },
@@ -188,12 +162,14 @@ const modules: ModuleCardData[] = [
     name: 'Analytics',
     accent: colors.purpleLight,
     title: 'Refill engine',
+    patternType: 'zigzag',
     metrics: [{ value: '8', label: 'Due', color: colors.purpleLight }],
   },
   {
     name: 'Vendors',
     accent: colors.red,
     title: 'Rankings S+',
+    patternType: 'rings',
     metrics: [{ value: '3', label: 'S+ rank', color: colors.teal }],
   },
 ];
@@ -306,7 +282,7 @@ export default function HomeScreen() {
         <SectionLabel title="MODULES" />
         <View style={styles.moduleGrid}>
           {modules.map((mod) => (
-            <ModuleCard key={mod.name} {...mod} />
+            <ModuleCard key={mod.name} {...mod} width={CARD_WIDTH} />
           ))}
         </View>
 
@@ -479,53 +455,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     paddingHorizontal: 14,
-  },
-  moduleCard: {
-    borderRadius: 14,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  moduleTop: {
-    height: 70,
-  },
-  moduleBottom: {
-    backgroundColor: 'rgba(14,14,14,0.95)',
-    padding: 10,
-  },
-  eyebrowTag: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    marginBottom: 4,
-  },
-  eyebrowText: {
-    fontSize: 8,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-  },
-  moduleTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    fontFamily: 'Inter_800ExtraBold',
-    marginBottom: 6,
-  },
-  metricsRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  metric: {},
-  metricValue: {
-    fontSize: 15,
-    fontWeight: '900',
-    fontFamily: 'Inter_900Black',
-  },
-  metricLabel: {
-    fontSize: 7,
-    color: 'rgba(255,255,255,0.3)',
-    fontFamily: 'Inter_400Regular',
   },
 
   // Alerts

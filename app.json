@@ -18,7 +18,15 @@
       "bundler": "metro",
       "output": "static"
     },
-    "plugins": ["expo-router"],
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow VASTRA to access your camera to scan garments."
+        }
+      ]
+    ],
     "experiments": {
       "typedRoutes": true
     }

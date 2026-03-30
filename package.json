@@ -12,6 +12,7 @@
   "dependencies": {
     "@expo-google-fonts/inter": "^0.2.3",
     "expo": "~52.0.46",
+    "expo-camera": "~15.0.16",
     "expo-font": "~13.0.4",
     "expo-router": "~4.0.17",
     "expo-splash-screen": "~0.29.21",
