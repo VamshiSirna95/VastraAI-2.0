@@ -59,7 +59,8 @@ export default function RootLayout() {
     } else if (authed && inLogin) {
       router.replace('/(tabs)');
     }
-  }, [fontsLoaded, dbReady, authed, segments, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fontsLoaded, dbReady, authed]);
 
   if (!fontsLoaded || !dbReady || authed === null) return null;
 
