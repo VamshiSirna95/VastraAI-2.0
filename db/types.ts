@@ -118,6 +118,11 @@ export interface PurchaseOrder {
   store_arrival_date?: string;
   notes?: string;
   voice_note_uri?: string;
+  cancellation_reason?: string;
+  cancelled_qty?: number;
+  is_deleted?: number;
+  deleted_at?: string;
+  document_uri?: string;
   created_at: string;
   updated_at: string;
   // Joined
@@ -169,6 +174,15 @@ export interface DeliveryConfig {
   store_dispatch_days: number;
 }
 
+// ── GRN size types ────────────────────────────────────────────────────────────
+
+export interface GRNSizeEntry {
+  ordered: number;
+  received: number;
+}
+
+export type GRNSizeData = Record<string, GRNSizeEntry>;
+
 // ── GRN types ─────────────────────────────────────────────────────────────────
 
 export interface GRNRecord {
@@ -203,6 +217,8 @@ export interface GRNItem {
   pattern_match_pct?: number;
   overall_match_pct?: number;
   status: 'pending' | 'accepted' | 'short' | 'rejected';
+  size_data_json?: string;
+  size_data?: GRNSizeData;
   notes?: string;
   created_at: string;
   // Joined from products

@@ -96,6 +96,11 @@ export const CREATE_TABLES = [
     store_arrival_date TEXT,
     notes TEXT,
     voice_note_uri TEXT,
+    cancellation_reason TEXT,
+    cancelled_qty INTEGER DEFAULT 0,
+    is_deleted INTEGER DEFAULT 0,
+    deleted_at TEXT,
+    document_uri TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (vendor_id) REFERENCES vendors(id)
@@ -179,6 +184,7 @@ export const CREATE_TABLES = [
     overall_match_pct REAL,
     status TEXT NOT NULL DEFAULT 'pending',
     notes TEXT,
+    size_data_json TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   )`,
 

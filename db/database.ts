@@ -1,6 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import { CREATE_TABLES } from './schema';
-import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt } from './types';
+import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt, GRNSizeData } from './types';
+import { SIZE_TEMPLATES } from './types';
 
 // ── DB singleton ──────────────────────────────────────────────────────────────
 
@@ -13,8 +14,24 @@ export async function initDatabase(): Promise<void> {
   for (const sql of CREATE_TABLES) {
     await _db.execAsync(sql);
   }
+  await runMigrations();
   await seedAttributeTemplates();
   await seedDeliveryConfig();
+}
+
+async function addCol(table: string, col: string, def: string): Promise<void> {
+  try { await getDb().execAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`); } catch { /* already exists */ }
+}
+
+async function runMigrations(): Promise<void> {
+  // purchase_orders new columns
+  await addCol('purchase_orders', 'cancellation_reason', 'TEXT');
+  await addCol('purchase_orders', 'cancelled_qty', 'INTEGER DEFAULT 0');
+  await addCol('purchase_orders', 'is_deleted', 'INTEGER DEFAULT 0');
+  await addCol('purchase_orders', 'deleted_at', 'TEXT');
+  await addCol('purchase_orders', 'document_uri', 'TEXT');
+  // grn_items new columns
+  await addCol('grn_items', 'size_data_json', 'TEXT');
 }
 
 export function getDb(): SQLite.SQLiteDatabase {
@@ -387,10 +404,11 @@ export async function createPO(po: Partial<PurchaseOrder>): Promise<string> {
   return id;
 }
 
-export async function getPOs(filters?: { status?: string; vendorId?: string; tripId?: string }): Promise<PurchaseOrder[]> {
+export async function getPOs(filters?: { status?: string; vendorId?: string; tripId?: string; includeDeleted?: boolean }): Promise<PurchaseOrder[]> {
   const db = getDb();
   const conditions: string[] = [];
   const params: (string | null)[] = [];
+  if (!filters?.includeDeleted) { conditions.push('(po.is_deleted = 0 OR po.is_deleted IS NULL)'); }
   if (filters?.status) { conditions.push('po.status = ?'); params.push(filters.status); }
   if (filters?.vendorId) { conditions.push('po.vendor_id = ?'); params.push(filters.vendorId); }
   if (filters?.tripId) { conditions.push('po.trip_id = ?'); params.push(filters.tripId); }
@@ -402,6 +420,45 @@ export async function getPOs(filters?: { status?: string; vendorId?: string; tri
      ORDER BY po.updated_at DESC`,
     params
   );
+}
+
+export async function getDeletedPOs(): Promise<PurchaseOrder[]> {
+  return getDb().getAllAsync<PurchaseOrder>(
+    `SELECT po.*, v.name as vendor_name FROM purchase_orders po
+     LEFT JOIN vendors v ON po.vendor_id = v.id
+     WHERE po.is_deleted = 1
+     ORDER BY po.deleted_at DESC`
+  );
+}
+
+export async function softDeletePO(poId: string): Promise<void> {
+  const po = await getPOById(poId);
+  if (!po) return;
+  if (po.status !== 'draft' && po.status !== 'closed') {
+    throw new Error('Only Draft or Closed POs can be deleted');
+  }
+  await getDb().runAsync(
+    `UPDATE purchase_orders SET is_deleted = 1, deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`,
+    [poId]
+  );
+}
+
+export async function restorePO(poId: string): Promise<void> {
+  await getDb().runAsync(
+    `UPDATE purchase_orders SET is_deleted = 0, deleted_at = NULL, updated_at = datetime('now') WHERE id = ?`,
+    [poId]
+  );
+}
+
+export async function permanentDeletePO(poId: string): Promise<void> {
+  await getDb().runAsync('DELETE FROM purchase_orders WHERE id = ? AND is_deleted = 1', [poId]);
+}
+
+export async function getDeletedPOCount(): Promise<number> {
+  const row = await getDb().getFirstAsync<{ cnt: number }>(
+    'SELECT COUNT(*) as cnt FROM purchase_orders WHERE is_deleted = 1'
+  );
+  return row?.cnt ?? 0;
 }
 
 export async function getPOById(id: string): Promise<PurchaseOrder | null> {
@@ -606,6 +663,21 @@ export async function updateDeliveryConfig(config: Partial<DeliveryConfig>): Pro
   );
 }
 
+// ── GRN helpers ───────────────────────────────────────────────────────────────
+
+const SIZE_COLS = ['size_s', 'size_m', 'size_l', 'size_xl', 'size_xxl', 'size_free'] as const;
+
+function buildGRNSizeData(item: POItem & { garment_type?: string }): GRNSizeData {
+  const g = (item as unknown as Record<string, unknown>).garment_type as string | undefined ?? 'default';
+  const labels = SIZE_TEMPLATES[g] ?? SIZE_TEMPLATES['default'];
+  const cols = [item.size_s, item.size_m, item.size_l, item.size_xl, item.size_xxl, item.size_free];
+  const data: GRNSizeData = {};
+  labels.forEach((lbl, idx) => {
+    data[lbl] = { ordered: cols[idx] ?? 0, received: 0 };
+  });
+  return data;
+}
+
 // ── GRN ───────────────────────────────────────────────────────────────────────
 
 async function getNextGRNSequence(): Promise<number> {
@@ -631,14 +703,15 @@ export async function createGRN(poId: string): Promise<string> {
     [id, poId, grn_number, today]
   );
 
-  // Create grn_items for each po_item
+  // Create grn_items for each po_item, including size breakdown
   const poItems = await getPOItems(poId);
   for (const item of poItems) {
+    const sizeJson = JSON.stringify(buildGRNSizeData(item as POItem & { garment_type?: string }));
     await db.runAsync(
       `INSERT INTO grn_items (id, grn_id, po_item_id, product_id, ordered_qty,
-        received_qty, accepted_qty, rejected_qty, status)
-       VALUES (?,?,?,?,?,0,0,0,'pending')`,
-      [uuid(), id, item.id, item.product_id, item.total_qty]
+        received_qty, accepted_qty, rejected_qty, status, size_data_json)
+       VALUES (?,?,?,?,?,0,0,0,'pending',?)`,
+      [uuid(), id, item.id, item.product_id, item.total_qty, sizeJson]
     );
   }
 
@@ -659,13 +732,18 @@ async function getGRNItems(grnId: string): Promise<GRNItem[]> {
      ORDER BY gi.created_at ASC`,
     [grnId]
   );
+  const result: GRNItem[] = [];
   for (const item of rows) {
-    item.photos = await db.getAllAsync<GRNPhoto>(
-      'SELECT * FROM grn_photos WHERE grn_item_id = ? ORDER BY created_at ASC',
-      [item.id]
-    );
+    result.push({
+      ...item,
+      size_data: item.size_data_json ? JSON.parse(item.size_data_json) as GRNSizeData : undefined,
+      photos: await db.getAllAsync<GRNPhoto>(
+        'SELECT * FROM grn_photos WHERE grn_item_id = ? ORDER BY created_at ASC',
+        [item.id]
+      ),
+    });
   }
-  return rows;
+  return result;
 }
 
 export async function getGRN(grnId: string): Promise<GRNRecord | null> {
@@ -689,11 +767,19 @@ export async function getGRNByPO(poId: string): Promise<GRNRecord | null> {
 
 export async function updateGRNItem(itemId: string, data: Partial<GRNItem>): Promise<void> {
   const db = getDb();
+  // If size_data provided, serialize to JSON and recalculate totals from size sums
+  const writeData: Record<string, unknown> = { ...data };
+  if (data.size_data) {
+    const totalReceived = Object.values(data.size_data).reduce((s, e) => s + e.received, 0);
+    writeData.size_data_json = JSON.stringify(data.size_data);
+    writeData.received_qty = totalReceived;
+    delete writeData.size_data;
+  }
   const excluded = ['id', 'grn_id', 'po_item_id', 'product_id', 'created_at', 'design_name', 'garment_type', 'photos'];
-  const fields = Object.keys(data).filter((k) => !excluded.includes(k));
+  const fields = Object.keys(writeData).filter((k) => !excluded.includes(k));
   if (fields.length === 0) return;
   const setClause = fields.map((f) => `${f} = ?`).join(', ');
-  const values = fields.map((f) => (data as Record<string, unknown>)[f] ?? null) as (string | number | null)[];
+  const values = fields.map((f) => writeData[f] ?? null) as (string | number | null)[];
   await db.runAsync(`UPDATE grn_items SET ${setClause} WHERE id = ?`, [...values, itemId]);
 }
 
