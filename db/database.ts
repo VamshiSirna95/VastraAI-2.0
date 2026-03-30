@@ -794,22 +794,63 @@ export async function createGRN(poId: string): Promise<string> {
     [id, poId, grn_number, today]
   );
 
-  // Create grn_items for each po_item, including size breakdown
+  // Check if previous GRNs exist — if so, only include items with pending qty
+  const existingGRNs = await db.getAllAsync<{ id: string; overall_status: string }>(
+    `SELECT id, overall_status FROM grn_records WHERE po_id = ? AND id != ?`,
+    [poId, id]
+  );
+  const hasPrevious = existingGRNs.length > 0;
+
   const poItems = await getPOItems(poId);
+  let totalOrdered = 0;
+
   for (const item of poItems) {
-    const sizeJson = JSON.stringify(buildGRNSizeData(item as POItem & { garment_type?: string }));
+    let sizeData = buildGRNSizeData(item as POItem & { garment_type?: string });
+    let orderedQty = item.total_qty;
+
+    if (hasPrevious) {
+      // Sum received qty per size across all previous finalized GRN items for this PO item
+      const prevRows = await db.getAllAsync<{ received_qty: number; size_data_json: string | null }>(
+        `SELECT gi.received_qty, gi.size_data_json
+         FROM grn_items gi
+         JOIN grn_records gr ON gi.grn_id = gr.id
+         WHERE gi.po_item_id = ? AND gr.overall_status != 'pending' AND gr.id != ?`,
+        [item.id, id]
+      );
+      const prevTotalReceived = prevRows.reduce((s, r) => s + r.received_qty, 0);
+      const pendingQty = Math.max(0, item.total_qty - prevTotalReceived);
+
+      if (pendingQty === 0) continue; // fully received, skip
+
+      orderedQty = pendingQty;
+
+      // Rebuild size data with pending per-size quantities
+      const pendingSizeData: GRNSizeData = {};
+      for (const [lbl, entry] of Object.entries(sizeData)) {
+        let prevReceivedForSize = 0;
+        for (const row of prevRows) {
+          if (row.size_data_json) {
+            const sd = JSON.parse(row.size_data_json) as GRNSizeData;
+            prevReceivedForSize += sd[lbl]?.received ?? 0;
+          }
+        }
+        const pending = Math.max(0, entry.ordered - prevReceivedForSize);
+        pendingSizeData[lbl] = { ordered: pending, received: 0, accepted: 0, rejected: 0 };
+      }
+      sizeData = pendingSizeData;
+    }
+
+    const sizeJson = JSON.stringify(sizeData);
     await db.runAsync(
       `INSERT INTO grn_items (id, grn_id, po_item_id, product_id, ordered_qty,
         received_qty, accepted_qty, rejected_qty, status, size_data_json)
        VALUES (?,?,?,?,?,0,0,0,'pending',?)`,
-      [uuid(), id, item.id, item.product_id, item.total_qty, sizeJson]
+      [uuid(), id, item.id, item.product_id, orderedQty, sizeJson]
     );
+    totalOrdered += orderedQty;
   }
 
-  // Set total_ordered_qty
-  const totalOrdered = poItems.reduce((s, i) => s + i.total_qty, 0);
   await db.runAsync('UPDATE grn_records SET total_ordered_qty = ? WHERE id = ?', [totalOrdered, id]);
-
   return id;
 }
 
@@ -854,6 +895,65 @@ export async function getGRNByPO(poId: string): Promise<GRNRecord | null> {
   if (!grn) return null;
   grn.items = await getGRNItems(grn.id);
   return grn;
+}
+
+/** Returns ALL GRNs for a PO (lightweight — no items loaded) */
+export async function getGRNsByPO(poId: string): Promise<GRNRecord[]> {
+  return getDb().getAllAsync<GRNRecord>(
+    'SELECT * FROM grn_records WHERE po_id = ? ORDER BY created_at ASC',
+    [poId]
+  );
+}
+
+/**
+ * For each PO item, returns how much has already been received across ALL
+ * finalized/partial GRNs, and how much is still pending.
+ */
+export async function getPOPendingQty(poId: string): Promise<
+  { poItemId: string; productId: string; orderedQty: number; totalReceived: number; pendingQty: number; sizeData: GRNSizeData }[]
+> {
+  const poItems = await getPOItems(poId);
+  const result = [];
+  for (const item of poItems) {
+    const grnItemRows = await getDb().getAllAsync<{
+      ordered_qty: number; received_qty: number; size_data_json: string | null; grn_id: string;
+    }>(
+      `SELECT gi.ordered_qty, gi.received_qty, gi.size_data_json, gi.grn_id
+       FROM grn_items gi
+       JOIN grn_records gr ON gi.grn_id = gr.id
+       WHERE gi.po_item_id = ? AND gr.overall_status != 'pending'`,
+      [item.id]
+    );
+    const totalReceived = grnItemRows.reduce((s, r) => s + r.received_qty, 0);
+    const pendingQty = Math.max(0, item.total_qty - totalReceived);
+
+    // Build pending size data
+    const baseSizeData = buildGRNSizeData(item as POItem & { garment_type?: string });
+    const pendingSizeData: GRNSizeData = {};
+    for (const [lbl, entry] of Object.entries(baseSizeData)) {
+      let receivedForSize = 0;
+      for (const row of grnItemRows) {
+        if (row.size_data_json) {
+          const sd = JSON.parse(row.size_data_json) as GRNSizeData;
+          receivedForSize += sd[lbl]?.received ?? 0;
+        }
+      }
+      const pendingOrdered = Math.max(0, entry.ordered - receivedForSize);
+      if (pendingOrdered > 0) {
+        pendingSizeData[lbl] = { ordered: pendingOrdered, received: 0, accepted: 0, rejected: 0 };
+      }
+    }
+
+    result.push({
+      poItemId: item.id,
+      productId: item.product_id,
+      orderedQty: item.total_qty,
+      totalReceived,
+      pendingQty,
+      sizeData: pendingSizeData,
+    });
+  }
+  return result;
 }
 
 export async function updateGRNItem(itemId: string, data: Partial<GRNItem>): Promise<void> {

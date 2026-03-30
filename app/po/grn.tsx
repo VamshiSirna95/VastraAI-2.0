@@ -9,7 +9,7 @@ import * as ImagePicker from 'expo-image-picker';
 import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import {
-  getGRNByPO, createGRN, updateGRNItem, finalizeGRN, addGRNPhoto, getPOById,
+  getGRN, getGRNByPO, getGRNsByPO, createGRN, updateGRNItem, finalizeGRN, addGRNPhoto, getPOById,
 } from '../../db/database';
 import type { GRNRecord, GRNItem, GRNSizeData, PurchaseOrder } from '../../db/types';
 
@@ -67,10 +67,12 @@ function calcItemTotals(local: LocalItem, orderedQty: number) {
 
 export default function GRNScreen() {
   const router = useRouter();
-  const { poId } = useLocalSearchParams<{ poId: string }>();
+  const { poId, grnId } = useLocalSearchParams<{ poId: string; grnId?: string }>();
 
   const [po, setPo] = useState<PurchaseOrder | null>(null);
   const [grn, setGrn] = useState<GRNRecord | null>(null);
+  const [grnIndex, setGrnIndex] = useState(1);
+  const [totalGrns, setTotalGrns] = useState(1);
   const [localData, setLocalData] = useState<Record<string, LocalItem>>({});
   const [finalizing, setFinalizing] = useState(false);
 
@@ -79,12 +81,24 @@ export default function GRNScreen() {
     const poData = await getPOById(poId);
     setPo(poData);
 
-    let grnData = await getGRNByPO(poId);
-    if (!grnData) {
-      await createGRN(poId);
+    let grnData: GRNRecord | null = null;
+    if (grnId) {
+      grnData = await getGRN(grnId);
+    } else {
       grnData = await getGRNByPO(poId);
-      if (!grnData) return;
+      if (!grnData) {
+        await createGRN(poId);
+        grnData = await getGRNByPO(poId);
+        if (!grnData) return;
+      }
     }
+
+    // Determine GRN position (e.g. "GRN 2 of 3")
+    const allGrns = await getGRNsByPO(poId);
+    setTotalGrns(allGrns.length);
+    const idx = allGrns.findIndex((g) => g.id === grnData!.id);
+    setGrnIndex(idx >= 0 ? idx + 1 : 1);
+
     setGrn(grnData);
 
     setLocalData((prev) => {
@@ -94,7 +108,7 @@ export default function GRNScreen() {
       }
       return next;
     });
-  }, [poId]);
+  }, [poId, grnId]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -229,14 +243,14 @@ export default function GRNScreen() {
         );
       }).catch(() => { return; });
       // If user cancelled, bail
-      const recheck = await getGRNByPO(poId!);
+      const recheck = grnId ? await getGRN(grnId) : await getGRNByPO(poId!);
       if (!recheck) return;
     }
 
     setFinalizing(true);
     try {
       await finalizeGRN(grn.id);
-      const updated = await getGRNByPO(poId!);
+      const updated = grnId ? await getGRN(grnId) : await getGRNByPO(poId!);
       setGrn(updated);
       const accepted = updated?.total_accepted_qty ?? 0;
       const ordered = updated?.total_ordered_qty ?? 0;
@@ -329,7 +343,7 @@ export default function GRNScreen() {
         {/* PO reference */}
         <View style={styles.poRef}>
           <Text style={styles.poRefText}>
-            {po?.po_number ?? poId} · {po?.vendor_name ?? ''}
+            {totalGrns > 1 ? `GRN ${grnIndex} of ${totalGrns} · ` : ''}{po?.po_number ?? poId}{po?.vendor_name ? ` · ${po.vendor_name}` : ''}
           </Text>
         </View>
 

@@ -8,8 +8,8 @@ import Svg, { Path, Circle } from 'react-native-svg';
 import * as Sharing from 'expo-sharing';
 import { colors } from '../../constants/theme';
 import {
-  getPOById, updatePO, getLRByPO, getGRNByPO, createGRN, getGRNPendingTotal, updateGRNItem,
-  softDeletePO, getVendorById,
+  getPOById, updatePO, getLRByPO, getGRNByPO, getGRNsByPO, createGRN, getGRNPendingTotal,
+  getPOPendingQty, updateGRNItem, softDeletePO, getVendorById,
 } from '../../db/database';
 import type { PurchaseOrder, POItem, LorryReceipt, GRNRecord, Vendor } from '../../db/types';
 import { DeliveryCard } from '../../components/DeliveryCard';
@@ -69,6 +69,8 @@ export default function PODetailScreen() {
   const [po, setPo] = useState<PurchaseOrder | null>(null);
   const [lr, setLr] = useState<LorryReceipt | null>(null);
   const [grn, setGrn] = useState<GRNRecord | null>(null);
+  const [allGrns, setAllGrns] = useState<GRNRecord[]>([]);
+  const [grnPendingItems, setGrnPendingItems] = useState(0);
   const [deliverySchedule, setDeliverySchedule] = useState<DeliverySchedule | null>(null);
   const [grnPending, setGrnPending] = useState<{ totalOrdered: number; totalReceived: number; totalPending: number; allReceived: boolean } | null>(null);
   const [generatingDoc, setGeneratingDoc] = useState(false);
@@ -83,15 +85,17 @@ export default function PODetailScreen() {
 
   const load = useCallback(async () => {
     if (!id) return;
-    const [data, lrData, grnData, sched] = await Promise.all([
+    const [data, lrData, grnData, allGrnData, sched] = await Promise.all([
       getPOById(id),
       getLRByPO(id),
       getGRNByPO(id),
+      getGRNsByPO(id),
       calculateDelivery(0, 1),
     ]);
     setPo(data);
     setLr(lrData);
     setGrn(grnData);
+    setAllGrns(allGrnData);
     setDeliverySchedule(sched);
     if (data?.vendor_id) {
       const v = await getVendorById(data.vendor_id);
@@ -102,6 +106,10 @@ export default function PODetailScreen() {
       setGrnPending(pending);
     } else {
       setGrnPending(null);
+    }
+    if (id) {
+      const pendingQtyData = await getPOPendingQty(id);
+      setGrnPendingItems(pendingQtyData.filter((i) => i.pendingQty > 0).length);
     }
   }, [id]);
 
@@ -385,39 +393,76 @@ export default function PODetailScreen() {
               </Svg>
               <Text style={[styles.sectionLabel, { color: colors.blue, marginBottom: 0 }]}>GOODS RECEIPT (GRN)</Text>
             </View>
-            {grn ? (
+            {allGrns.length > 0 ? (
               <View style={styles.grnDetails}>
-                <InfoRow label="GRN Number" value={grn.grn_number} />
-                <InfoRow label="Received Date" value={grn.received_date} />
-                <View style={styles.grnStats}>
-                  <GRNStat label="Ordered" value={String(grn.total_ordered_qty)} color="rgba(255,255,255,0.5)" />
-                  <GRNStat label="Received" value={String(grn.total_received_qty)} color={colors.blue} />
-                  <GRNStat label="Accepted" value={String(grn.total_accepted_qty)} color={colors.teal} />
-                  {grn.total_rejected_qty > 0 && (
-                    <GRNStat label="Rejected" value={String(grn.total_rejected_qty)} color={colors.red} />
-                  )}
-                </View>
-                <TouchableOpacity
-                  style={styles.openGrnBtn}
-                  onPress={() => router.push(`/po/grn?poId=${id}`)}
-                >
-                  <Text style={styles.openGrnText}>
-                    {grn.overall_status === 'pending' ? 'Continue GRN →' : 'View GRN →'}
-                  </Text>
-                </TouchableOpacity>
-                {grn.overall_status !== 'pending' && (
+                {allGrns.map((g, idx) => (
                   <TouchableOpacity
-                    style={styles.allocateBtn}
-                    onPress={() => router.push(`/po/allocate?grnId=${grn.id}`)}
+                    key={g.id}
+                    style={styles.grnHistoryCard}
+                    onPress={() => router.push(`/po/grn?poId=${id}&grnId=${g.id}`)}
+                    activeOpacity={0.75}
                   >
-                    <Text style={styles.allocateBtnText}>Allocate to Stores →</Text>
+                    <View style={styles.grnHistoryRow}>
+                      <Text style={styles.grnHistoryNum}>GRN {idx + 1} — {g.grn_number}</Text>
+                      <View style={[styles.grnStatusBadge, {
+                        backgroundColor: g.overall_status === 'accepted'
+                          ? 'rgba(93,202,165,0.12)' : g.overall_status === 'pending'
+                          ? 'rgba(239,159,39,0.12)' : 'rgba(55,138,221,0.12)',
+                      }]}>
+                        <Text style={[styles.grnStatusText, {
+                          color: g.overall_status === 'accepted' ? colors.teal
+                            : g.overall_status === 'pending' ? colors.amber : colors.blue,
+                        }]}>{g.overall_status.toUpperCase()}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.grnHistorySub}>
+                      {g.received_date}{'  ·  '}
+                      {g.total_received_qty}/{g.total_ordered_qty} pcs received
+                    </Text>
+                    {g.overall_status !== 'pending' && (
+                      <TouchableOpacity
+                        style={styles.allocateBtn}
+                        onPress={() => router.push(`/po/allocate?grnId=${g.id}`)}
+                      >
+                        <Text style={styles.allocateBtnText}>Allocate to Stores →</Text>
+                      </TouchableOpacity>
+                    )}
                   </TouchableOpacity>
+                ))}
+                {grnPendingItems > 0 && (
+                  <View style={styles.grnPendingRow}>
+                    <Text style={styles.grnPendingText}>
+                      {grnPendingItems} item{grnPendingItems > 1 ? 's' : ''} still pending delivery
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.createGrnBtn}
+                      onPress={async () => {
+                        try {
+                          const newGrnId = await createGRN(id!);
+                          await load();
+                          router.push(`/po/grn?poId=${id}&grnId=${newGrnId}`);
+                        } catch (e) {
+                          Alert.alert('Error', String(e));
+                        }
+                      }}
+                    >
+                      <Text style={styles.createGrnBtnText}>Create GRN for Remaining →</Text>
+                    </TouchableOpacity>
+                  </View>
                 )}
               </View>
             ) : (
               <TouchableOpacity
                 style={styles.uploadLrBtn}
-                onPress={() => router.push(`/po/grn?poId=${id}`)}
+                onPress={async () => {
+                  try {
+                    const newGrnId = await createGRN(id!);
+                    await load();
+                    router.push(`/po/grn?poId=${id}&grnId=${newGrnId}`);
+                  } catch (e) {
+                    Alert.alert('Error', String(e));
+                  }
+                }}
               >
                 <Text style={[styles.uploadLrText, { color: colors.blue }]}>Start GRN Verification</Text>
               </TouchableOpacity>
@@ -722,8 +767,27 @@ const styles = StyleSheet.create({
   grnStatLabel: { fontSize: 10, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular' },
   openGrnBtn: { paddingVertical: 8, marginTop: 4 },
   openGrnText: { fontSize: 13, fontWeight: '700', color: colors.blue, fontFamily: 'Inter_700Bold' },
-  allocateBtn: { paddingVertical: 8, marginTop: 4 },
-  allocateBtnText: { fontSize: 13, fontWeight: '700', color: colors.teal, fontFamily: 'Inter_700Bold' },
+  allocateBtn: { paddingVertical: 6, marginTop: 4 },
+  allocateBtnText: { fontSize: 12, fontWeight: '700', color: colors.teal, fontFamily: 'Inter_700Bold' },
+
+  // GRN history
+  grnHistoryCard: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+  },
+  grnHistoryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  grnHistoryNum: { fontSize: 13, fontWeight: '700', color: '#FFFFFF', fontFamily: 'Inter_700Bold' },
+  grnStatusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  grnStatusText: { fontSize: 10, fontWeight: '700', fontFamily: 'Inter_700Bold' },
+  grnHistorySub: { fontSize: 12, color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_400Regular' },
+  grnPendingRow: { marginTop: 6, gap: 8 },
+  grnPendingText: { fontSize: 13, color: colors.amber, fontFamily: 'Inter_500Medium' },
+  createGrnBtn: { paddingVertical: 10, paddingHorizontal: 16, backgroundColor: 'rgba(55,138,221,0.1)', borderWidth: 1, borderColor: 'rgba(55,138,221,0.25)', borderRadius: 10, alignItems: 'center' },
+  createGrnBtnText: { fontSize: 13, fontWeight: '700', color: colors.blue, fontFamily: 'Inter_700Bold' },
 
   itemRow: {
     flexDirection: 'row',
