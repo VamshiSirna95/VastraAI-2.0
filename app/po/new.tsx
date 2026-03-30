@@ -66,8 +66,6 @@ type EnrichedItem = POItem & { design_name?: string; garment_type?: string; purc
 
 interface ArticleCardProps {
   item: EnrichedItem;
-  expanded: boolean;
-  onToggle: () => void;
   localSizes: Record<string, number>;
   onSizesChange: (sizes: Record<string, number>, totalQty: number, totalPrice: number) => void;
   onRemove: () => void;
@@ -76,7 +74,7 @@ interface ArticleCardProps {
 }
 
 function ArticleCard({
-  item, expanded, onToggle, localSizes, onSizesChange, onRemove, unitPrice, onUnitPriceChange,
+  item, localSizes, onSizesChange, onRemove, unitPrice, onUnitPriceChange,
 }: ArticleCardProps) {
   const name = item.design_name ?? 'Unknown product';
   const garmentType = item.garment_type ?? 'default';
@@ -85,7 +83,8 @@ function ArticleCard({
 
   return (
     <View style={styles.articleCard}>
-      <TouchableOpacity style={styles.articleHeader} onPress={onToggle} activeOpacity={0.75}>
+      {/* Header: name · garment type · unit price · remove */}
+      <View style={styles.articleHeader}>
         <View style={[styles.articleThumb, { backgroundColor: hexToRgba(colors.teal, 0.12) }]}>
           <Text style={[styles.thumbInitial, { color: colors.teal }]}>
             {(name[0] ?? '?').toUpperCase()}
@@ -98,34 +97,42 @@ function ArticleCard({
             <Text style={styles.articleQtySummary}>{totalQty} pcs · {formatINR(totalPrice)}</Text>
           )}
         </View>
+        {/* Unit price — always visible; editable if 0 */}
+        <View style={styles.articlePriceCol}>
+          <Text style={styles.articlePriceLabel}>Unit price</Text>
+          {unitPrice > 0 ? (
+            <TouchableOpacity onPress={() => onUnitPriceChange(0)}>
+              <Text style={styles.articlePriceValue}>
+                ₹{unitPrice.toLocaleString('en-IN')}
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <TextInput
+              style={styles.unitPriceInputHeader}
+              value={''}
+              onChangeText={(v) => onUnitPriceChange(parseFloat(v) || 0)}
+              keyboardType="numeric"
+              placeholder="₹ —"
+              placeholderTextColor={colors.amber}
+            />
+          )}
+        </View>
         <TouchableOpacity onPress={onRemove} style={styles.removeBtn} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
           <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
             <Path d="M18 6L6 18M6 6l12 12" stroke="rgba(255,255,255,0.3)" strokeWidth={2} strokeLinecap="round" />
           </Svg>
         </TouchableOpacity>
-      </TouchableOpacity>
+      </View>
 
-      {expanded && (
-        <View style={styles.articleExpanded}>
-          <View style={styles.unitPriceRow}>
-            <Text style={styles.fieldLabel}>Unit Price (₹)</Text>
-            <TextInput
-              style={styles.unitPriceInput}
-              value={unitPrice ? String(unitPrice) : ''}
-              onChangeText={(v) => onUnitPriceChange(parseFloat(v) || 0)}
-              keyboardType="numeric"
-              placeholder="Enter price"
-              placeholderTextColor="rgba(255,255,255,0.2)"
-            />
-          </View>
-          <SizeQtyMatrix
-            garmentType={garmentType}
-            sizes={localSizes}
-            unitPrice={unitPrice}
-            onChange={onSizesChange}
-          />
-        </View>
-      )}
+      {/* Size-qty matrix — always visible */}
+      <View style={styles.articleMatrixSection}>
+        <SizeQtyMatrix
+          garmentType={garmentType}
+          sizes={localSizes}
+          unitPrice={unitPrice}
+          onChange={onSizesChange}
+        />
+      </View>
     </View>
   );
 }
@@ -144,7 +151,6 @@ export default function NewPOScreen() {
   const [items, setItems] = useState<EnrichedItem[]>([]);
   const [localSizes, setLocalSizes] = useState<Record<string, Record<string, number>>>({});
   const [unitPrices, setUnitPrices] = useState<Record<string, number>>({});
-  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
   const [deliveryDate, setDeliveryDate] = useState('');
   const [deliverySchedule, setDeliverySchedule] = useState<DeliverySchedule | null>(null);
@@ -204,7 +210,15 @@ export default function NewPOScreen() {
         // Use purchase_price as fallback when unit_price is 0
         newUnitPrices[i.id] = i.unit_price > 0 ? i.unit_price : ((i.purchase_price ?? 0));
       });
-      setLocalSizes((prev) => ({ ...newLocalSizes, ...prev }));
+      // DB values are authoritative for unedited items; preserve only items that have been actively changed
+      setLocalSizes((prev) => {
+        const merged: Record<string, Record<string, number>> = { ...newLocalSizes };
+        // Keep user-edited sizes only if they have non-zero values
+        Object.keys(prev).forEach((k) => {
+          if (Object.values(prev[k]).some((v) => v > 0)) merged[k] = prev[k];
+        });
+        return merged;
+      });
       setUnitPrices((prev) => {
         const merged: Record<string, number> = { ...newUnitPrices };
         // keep user-edited prices
@@ -371,20 +385,15 @@ export default function NewPOScreen() {
             <ArticleCard
               key={item.id}
               item={item}
-              expanded={expandedItemId === item.id}
-              onToggle={() => setExpandedItemId(expandedItemId === item.id ? null : item.id)}
               localSizes={localSizes[item.id] ?? dbToSizes(item.garment_type ?? 'default', item)}
               unitPrice={unitPrices[item.id] ?? 0}
               onUnitPriceChange={(val) => {
                 setUnitPrices((prev) => ({ ...prev, [item.id]: val }));
-                // Persist to DB in background
                 const dbSizes = sizesToDB(item.garment_type ?? 'default', localSizes[item.id] ?? {});
                 updatePOItem(item.id, { ...dbSizes, unit_price: val });
               }}
               onSizesChange={(sizes, _qty, _price) => {
-                // Immediately update local state for live summary
                 setLocalSizes((prev) => ({ ...prev, [item.id]: sizes }));
-                // Persist to DB in background
                 const dbSizes = sizesToDB(item.garment_type ?? 'default', sizes);
                 updatePOItem(item.id, { ...dbSizes, unit_price: unitPrices[item.id] ?? 0 });
               }}
@@ -597,7 +606,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 12,
-    gap: 12,
+    gap: 10,
   },
   articleThumb: {
     width: 44,
@@ -629,31 +638,42 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_500Medium',
     marginTop: 2,
   },
+  articlePriceCol: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  articlePriceLabel: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.3)',
+    fontFamily: 'Inter_400Regular',
+    letterSpacing: 0.5,
+  },
+  articlePriceValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.amber,
+    fontFamily: 'Inter_700Bold',
+  },
+  unitPriceInputHeader: {
+    backgroundColor: 'rgba(239,159,39,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,159,39,0.3)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.amber,
+    fontFamily: 'Inter_500Medium',
+    width: 72,
+    textAlign: 'right',
+  },
   removeBtn: { padding: 4 },
 
-  articleExpanded: {
+  articleMatrixSection: {
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.06)',
     padding: 12,
-    gap: 12,
-  },
-  unitPriceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  unitPriceInput: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 15,
-    color: '#FFFFFF',
-    fontFamily: 'Inter_500Medium',
-    width: 120,
-    textAlign: 'right',
   },
 
   addArticleBtn: {
