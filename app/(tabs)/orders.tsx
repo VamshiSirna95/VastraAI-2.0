@@ -326,27 +326,33 @@ const styles = StyleSheet.create({
   },
 
   chipsScroll: {
-    marginBottom: 8,
+    height: 48,
+    marginBottom: 12,
   },
   chipsContent: {
     paddingHorizontal: 20,
     gap: 8,
     flexDirection: 'row',
+    alignItems: 'center',
+    height: 48,
   },
   chip: {
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 20,
+    height: 36,
+    paddingHorizontal: 16,
+    paddingVertical: 0,
+    borderRadius: 18,
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   chipActive: {
     backgroundColor: 'rgba(93,202,165,0.12)',
     borderColor: 'rgba(93,202,165,0.3)',
   },
   chipText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.4)',
     fontFamily: 'Inter_500Medium',
