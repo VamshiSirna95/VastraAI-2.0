@@ -16,9 +16,9 @@ import { hexToRgba } from '../../components/ModuleCard';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const FRAME_W = 180;
-const FRAME_H = 230;
-const CORNER_LEN = 16;
+const FRAME_W = 220;
+const FRAME_H = 280;
+const CORNER_LEN = 20;
 const CORNER_W = 3;
 
 // ── Static data ───────────────────────────────────────────────────────────────
@@ -38,7 +38,7 @@ const ATTR_PILLS = [
 
 function FlashIcon({ color }: { color: string }) {
   return (
-    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
       <Path
         d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"
         stroke={color} strokeWidth={1.8}
@@ -50,7 +50,7 @@ function FlashIcon({ color }: { color: string }) {
 
 function MicIcon({ color }: { color: string }) {
   return (
-    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
       <Path
         d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z"
         stroke={color} strokeWidth={1.8} strokeLinejoin="round"
@@ -65,7 +65,7 @@ function MicIcon({ color }: { color: string }) {
 
 function GalleryIcon({ color }: { color: string }) {
   return (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+    <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
       <Rect x={3} y={3} width={18} height={18} rx={2}
         stroke={color} strokeWidth={1.8} />
       <Path
@@ -79,7 +79,7 @@ function GalleryIcon({ color }: { color: string }) {
 
 function BatchIcon({ color }: { color: string }) {
   return (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+    <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
       <Path d="M4 6h16M4 10h16M4 14h10"
         stroke={color} strokeWidth={1.8} strokeLinecap="round" />
       <Rect x={14} y={12} width={7} height={7} rx={1}
@@ -322,15 +322,15 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   modePill: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
     borderRadius: 12,
   },
   modePillActive: {
     backgroundColor: 'rgba(255,255,255,0.1)',
   },
   modePillText: {
-    fontSize: 9,
+    fontSize: 12,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.35)',
     fontFamily: 'Inter_500Medium',
@@ -364,9 +364,9 @@ const styles = StyleSheet.create({
 
   detectionFloatWrapper: {
     position: 'absolute',
-    bottom: 8,
-    left: 8,
-    right: 8,
+    bottom: 10,
+    left: 10,
+    right: 10,
   },
 
   // Side buttons
@@ -374,9 +374,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   sideBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: 'rgba(0,0,0,0.5)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
@@ -390,8 +390,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(93,202,165,0.2)',
     borderRadius: 10,
-    padding: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     gap: 6,
+    width: 240,
   },
   detectionHeader: {
     flexDirection: 'row',
@@ -405,7 +407,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.teal,
   },
   detectionLabel: {
-    fontSize: 9,
+    fontSize: 12,
     fontWeight: '700',
     color: colors.teal,
     fontFamily: 'Inter_700Bold',
@@ -416,12 +418,12 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   attrPill: {
-    paddingVertical: 2,
-    paddingHorizontal: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
     borderRadius: 4,
   },
   attrPillText: {
-    fontSize: 8,
+    fontSize: 11,
     fontWeight: '600',
     color: '#FFFFFF',
     fontFamily: 'Inter_500Medium',
@@ -431,18 +433,18 @@ const styles = StyleSheet.create({
   stabilityHint: {
     backgroundColor: 'rgba(0,0,0,0.6)',
     borderRadius: 12,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 16,
   },
   stabilityText: {
-    fontSize: 9,
+    fontSize: 12,
     color: colors.teal,
     fontFamily: 'Inter_500Medium',
   },
 
   // Bottom bar
   bottomBar: {
-    height: 100,
+    height: 120,
     backgroundColor: 'rgba(0,0,0,0.95)',
     flexDirection: 'row',
     alignItems: 'center',
@@ -454,25 +456,25 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   bottomBtnLabel: {
-    fontSize: 8,
+    fontSize: 11,
     color: 'rgba(255,255,255,0.4)',
     fontFamily: 'Inter_400Regular',
   },
 
   // Shutter
   shutterOuter: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     borderWidth: 3,
     borderColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
   },
   shutterInner: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: '#FFFFFF',
   },
 

@@ -24,7 +24,7 @@ export interface ModuleCardProps {
 
 // ── Module-level constants ────────────────────────────────────────────────────
 
-const PATTERN_H = 70;
+const PATTERN_H = 100;
 
 // ── Animation Clock (single RAF shared across all cards) ─────────────────────
 
@@ -208,7 +208,7 @@ function BlobsPattern({ width, t }: { width: number; t: number }) {
 
 const CHEV_W = 18;
 const CHEV_H = 10;
-const ZIGZAG_ROWS = [11, 35, 57] as const;
+const ZIGZAG_ROWS = [16, 50, 82] as const;
 
 function ZigzagPattern({ width, t, accent }: { width: number; t: number; accent: string }) {
   const allChevrons = useMemo(() => {
@@ -247,11 +247,11 @@ function ZigzagPattern({ width, t, accent }: { width: number; t: number; accent:
 
 // ── Pattern: Rings (Vendors — red) ───────────────────────────────────────────
 
-const RING_BASE_RADII = [8, 17, 26, 35, 44] as const;
+const RING_BASE_RADII = [10, 22, 34, 46, 58] as const;
 
 function RingsPattern({ width, t, accent }: { width: number; t: number; accent: string }) {
   const cx = width * 0.55;
-  const cy = 31;
+  const cy = 44;
   return (
     <Svg width={width} height={PATTERN_H}>
       {RING_BASE_RADII.map((baseR, i) => {
@@ -331,39 +331,42 @@ const styles = StyleSheet.create({
   },
   bottom: {
     backgroundColor: 'rgba(14,14,14,0.95)',
-    padding: 10,
+    padding: 14,
   },
   eyebrowTag: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
     marginBottom: 4,
   },
   eyebrowText: {
-    fontSize: 8,
+    fontSize: 11,
     fontWeight: '700',
     fontFamily: 'Inter_700Bold',
   },
   cardTitle: {
-    fontSize: 12,
+    fontSize: 16,
     fontWeight: '800',
     color: colors.textPrimary,
     fontFamily: 'Inter_800ExtraBold',
-    marginBottom: 6,
+    marginTop: 6,
+    marginBottom: 0,
   },
   metricsRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 16,
+    marginTop: 10,
   },
   metricValue: {
-    fontSize: 15,
+    fontSize: 22,
     fontWeight: '900',
     fontFamily: 'Inter_900Black',
   },
   metricLabel: {
-    fontSize: 7,
+    fontSize: 10,
     color: 'rgba(255,255,255,0.3)',
     fontFamily: 'Inter_400Regular',
+    marginTop: 2,
   },
 });

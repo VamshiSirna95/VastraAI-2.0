@@ -17,15 +17,22 @@ export const colors = {
 } as const;
 
 export const typography = {
-  hero: { fontSize: 22, fontWeight: '900' as const },
-  sectionTitle: { fontSize: 16, fontWeight: '900' as const },
-  cardTitle: { fontSize: 12, fontWeight: '800' as const },
-  cardSub: { fontSize: 9, fontWeight: '400' as const, color: 'rgba(255,255,255,0.3)' },
-  sectionLabel: { fontSize: 8, fontWeight: '700' as const, letterSpacing: 1.8, textTransform: 'uppercase' as const, color: 'rgba(255,255,255,0.25)' },
-  metricValue: { fontSize: 20, fontWeight: '900' as const },
-  metricLabel: { fontSize: 7, fontWeight: '500' as const, color: 'rgba(255,255,255,0.3)' },
-  navLabel: { fontSize: 8, fontWeight: '500' as const },
-  alertText: { fontSize: 10, fontWeight: '400' as const, color: 'rgba(255,255,255,0.5)' },
+  hero: { fontSize: 32, fontWeight: '900' as const, lineHeight: 36 },
+  sectionTitle: { fontSize: 22, fontWeight: '900' as const },
+  cardTitle: { fontSize: 16, fontWeight: '800' as const },
+  cardSub: { fontSize: 12, fontWeight: '400' as const, color: 'rgba(255,255,255,0.3)' },
+  sectionLabel: { fontSize: 11, fontWeight: '700' as const, letterSpacing: 2.5, textTransform: 'uppercase' as const, color: 'rgba(255,255,255,0.25)' },
+  metricValue: { fontSize: 28, fontWeight: '900' as const },
+  metricLabel: { fontSize: 11, fontWeight: '500' as const, color: 'rgba(255,255,255,0.3)' },
+  navLabel: { fontSize: 10, fontWeight: '500' as const },
+  alertText: { fontSize: 14, fontWeight: '400' as const, color: 'rgba(255,255,255,0.5)' },
+} as const;
+
+export const spacing = {
+  screenPadding: 20,
+  cardPadding: 16,
+  sectionGap: 20,
+  cardGap: 12,
 } as const;
 
 export const glass = {

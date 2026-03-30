@@ -13,8 +13,8 @@ import { colors } from '../../constants/theme';
 import ModuleCard, { type PatternType, type MetricData } from '../../components/ModuleCard';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-// 14px padding on each side + 8px gap between 2 columns
-const CARD_WIDTH = Math.floor((SCREEN_WIDTH - 36) / 2);
+// 20px padding on each side + 12px gap between 2 columns
+const CARD_WIDTH = Math.floor((SCREEN_WIDTH - 52) / 2);
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -27,7 +27,7 @@ function hexToRgba(hex: string, alpha: number): string {
 
 function Sparkline({ points, color }: { points: string; color: string }) {
   return (
-    <Svg height={18} width="100%" viewBox="0 0 60 18" preserveAspectRatio="none">
+    <Svg height={24} width={80} viewBox="0 0 60 18" preserveAspectRatio="none">
       <Polyline
         points={points}
         fill="none"
@@ -227,7 +227,7 @@ export default function HomeScreen() {
             label="Scan"
             color={colors.teal}
             icon={
-              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
                 <Path
                   d="M7 3H3v4M17 3h4v4M7 21H3v-4M17 21h4v-4"
                   stroke={colors.teal}
@@ -241,7 +241,7 @@ export default function HomeScreen() {
             label="New article"
             color={colors.amber}
             icon={
-              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
                 <Path
                   d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"
                   stroke={colors.amber}
@@ -260,7 +260,7 @@ export default function HomeScreen() {
             label="Create PO"
             color={colors.purple}
             icon={
-              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
                 <Path
                   d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z"
                   stroke={colors.purple}
@@ -328,54 +328,54 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   content: {
-    paddingBottom: 32,
+    paddingBottom: 40,
   },
 
   // Hero
   hero: {
-    paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 20,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 16,
     overflow: 'hidden',
   },
   glowTeal: {
     position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
     backgroundColor: colors.teal,
     opacity: 0.14,
-    right: -40,
-    top: -40,
+    right: -60,
+    top: -60,
   },
   glowPurple: {
     position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
     backgroundColor: colors.purple,
     opacity: 0.08,
-    left: -20,
+    left: -30,
     top: 20,
   },
   heroEyebrow: {
-    fontSize: 8,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 2,
+    letterSpacing: 2.5,
     color: 'rgba(255,255,255,0.25)',
     textTransform: 'uppercase',
     marginBottom: 10,
     fontFamily: 'Inter_700Bold',
   },
   heroTitle: {
-    fontSize: 22,
+    fontSize: 32,
     fontWeight: '900',
     color: colors.textPrimary,
     fontFamily: 'Inter_900Black',
-    lineHeight: 30,
+    lineHeight: 36,
   },
   heroSubtitle: {
-    fontSize: 10,
+    fontSize: 14,
     color: 'rgba(255,255,255,0.3)',
     marginTop: 8,
     fontFamily: 'Inter_400Regular',
@@ -384,32 +384,32 @@ const styles = StyleSheet.create({
   // Stats
   statsRow: {
     flexDirection: 'row',
-    gap: 6,
-    paddingHorizontal: 16,
+    gap: 10,
+    paddingHorizontal: 20,
     marginBottom: 16,
   },
   statCard: {
     flex: 1,
-    minWidth: 75,
+    minWidth: 90,
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
     borderRadius: 14,
-    padding: 10,
+    padding: 16,
     alignItems: 'center',
   },
   statValue: {
-    fontSize: 20,
+    fontSize: 28,
     fontWeight: '900',
     fontFamily: 'Inter_900Black',
   },
   statLabel: {
-    fontSize: 8,
+    fontSize: 11,
     color: 'rgba(255,255,255,0.3)',
     fontWeight: '500',
     fontFamily: 'Inter_500Medium',
     marginBottom: 6,
-    marginTop: 1,
+    marginTop: 2,
   },
 
   // Quick Actions
@@ -417,35 +417,35 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   quickActionsContent: {
-    paddingHorizontal: 16,
-    gap: 8,
+    paddingHorizontal: 20,
+    gap: 10,
     flexDirection: 'row',
   },
   quickAction: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     borderWidth: 1,
     borderRadius: 8,
   },
   quickActionLabel: {
-    fontSize: 11,
+    fontSize: 14,
     fontWeight: '700',
     fontFamily: 'Inter_700Bold',
   },
 
   // Section Label
   sectionLabel: {
-    fontSize: 8,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 1.8,
+    letterSpacing: 2.5,
     textTransform: 'uppercase',
     color: 'rgba(255,255,255,0.25)',
-    paddingHorizontal: 16,
-    marginTop: 14,
-    marginBottom: 6,
+    paddingHorizontal: 20,
+    marginTop: 24,
+    marginBottom: 10,
     fontFamily: 'Inter_700Bold',
   },
 
@@ -453,32 +453,34 @@ const styles = StyleSheet.create({
   moduleGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    paddingHorizontal: 14,
+    gap: 12,
+    paddingHorizontal: 20,
   },
 
   // Alerts
   alertsList: {
-    paddingHorizontal: 16,
-    gap: 6,
+    paddingHorizontal: 20,
+    gap: 10,
+    paddingBottom: 100,
   },
   alertItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    padding: 10,
+    gap: 12,
+    padding: 16,
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
     borderRadius: 14,
   },
   alertDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   alertText: {
-    fontSize: 10,
+    fontSize: 14,
+    lineHeight: 20,
     color: 'rgba(255,255,255,0.5)',
     flex: 1,
     fontFamily: 'Inter_400Regular',
