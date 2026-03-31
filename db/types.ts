@@ -333,6 +333,72 @@ export interface AnalyticsData {
   tripBudget: { name: string; budget: number; spent: number }[];
 }
 
+export interface StoreStock {
+  id: number;
+  store_id: number;
+  product_id: string;
+  size_stock_json: string;
+  size_stock?: Record<string, number>;
+  total_qty: number;
+  last_updated: string;
+  // Joined
+  store_name?: string;
+  design_name?: string;
+  garment_type?: string;
+}
+
+export interface StockTransfer {
+  id: number;
+  from_store_id: number;
+  to_store_id: number;
+  product_id: string;
+  size_transfer_json: string;
+  size_transfer?: Record<string, number>;
+  total_qty: number;
+  status: 'requested' | 'approved' | 'dispatched' | 'received' | 'cancelled';
+  requested_by?: string;
+  approved_by?: string;
+  reason?: string;
+  created_at: string;
+  updated_at: string;
+  // Joined
+  from_store_name?: string;
+  to_store_name?: string;
+  design_name?: string;
+}
+
+export interface CustomerDemand {
+  id: number;
+  customer_phone?: string;
+  customer_name?: string;
+  description: string;
+  photo_uri?: string;
+  garment_type?: string;
+  color_preference?: string;
+  price_range_min?: number;
+  price_range_max?: number;
+  store_id?: number;
+  captured_by?: string;
+  status: 'open' | 'matched' | 'fulfilled' | 'expired' | 'cancelled';
+  matched_product_id?: string;
+  fulfilled_date?: string;
+  notes?: string;
+  created_at: string;
+  // Joined
+  store_name?: string;
+}
+
+export interface AppNotification {
+  id: number;
+  type: 'po_status' | 'grn_due' | 'stock_low' | 'demand_match' | 'transfer' | 'system';
+  title: string;
+  body: string;
+  reference_type?: string;
+  reference_id?: string;
+  is_read: number;
+  created_at: string;
+}
+
 // Size templates per garment type
 export const SIZE_TEMPLATES: Record<string, string[]> = {
   'Shirt': ['S', 'M', 'L', 'XL', 'XXL'],

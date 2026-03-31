@@ -279,4 +279,63 @@ export const CREATE_TABLES = [
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
   )`,
+
+  // Store Stock Pool — per-store per-product inventory
+  `CREATE TABLE IF NOT EXISTS store_stock (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id INTEGER NOT NULL REFERENCES stores(id),
+    product_id TEXT NOT NULL REFERENCES products(id),
+    size_stock_json TEXT NOT NULL DEFAULT '{}',
+    total_qty INTEGER NOT NULL DEFAULT 0,
+    last_updated TEXT DEFAULT (datetime('now')),
+    UNIQUE(store_id, product_id)
+  )`,
+
+  // Stock Transfers — inter-store transfer requests
+  `CREATE TABLE IF NOT EXISTS stock_transfers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_store_id INTEGER NOT NULL REFERENCES stores(id),
+    to_store_id INTEGER NOT NULL REFERENCES stores(id),
+    product_id TEXT NOT NULL REFERENCES products(id),
+    size_transfer_json TEXT NOT NULL,
+    total_qty INTEGER NOT NULL,
+    status TEXT DEFAULT 'requested',
+    requested_by TEXT,
+    approved_by TEXT,
+    reason TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  )`,
+
+  // Customer Demands — capture what customers are looking for
+  `CREATE TABLE IF NOT EXISTS customer_demands (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_phone TEXT,
+    customer_name TEXT,
+    description TEXT NOT NULL,
+    photo_uri TEXT,
+    garment_type TEXT,
+    color_preference TEXT,
+    price_range_min REAL,
+    price_range_max REAL,
+    store_id INTEGER REFERENCES stores(id),
+    captured_by TEXT,
+    status TEXT DEFAULT 'open',
+    matched_product_id TEXT REFERENCES products(id),
+    fulfilled_date TEXT,
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
+
+  // Notifications — in-app notification center
+  `CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    reference_type TEXT,
+    reference_id TEXT,
+    is_read INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
 ];

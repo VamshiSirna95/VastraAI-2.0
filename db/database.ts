@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { CREATE_TABLES } from './schema';
-import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt, GRNSizeData, Store, StockAllocation, User, AnalyticsData, VoiceNote } from './types';
+import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt, GRNSizeData, Store, StockAllocation, User, AnalyticsData, VoiceNote, StoreStock, StockTransfer, CustomerDemand, AppNotification } from './types';
 import { SIZE_TEMPLATES } from './types';
 
 // ── DB singleton ──────────────────────────────────────────────────────────────
@@ -1598,4 +1598,231 @@ export async function getAnalyticsData(dateFrom: string, dateTo: string): Promis
     categoryBreakdown: categoryRows,
     tripBudget: tripRows,
   };
+}
+
+// ── Store Stock Pool ──────────────────────────────────────────────────────────
+
+export async function getStoreStock(storeId?: number): Promise<StoreStock[]> {
+  const db = getDb();
+  const where = storeId != null ? 'WHERE ss.store_id = ?' : '';
+  const params = storeId != null ? [storeId] : [];
+  const rows = await db.getAllAsync<StoreStock>(
+    `SELECT ss.*, s.name as store_name, p.design_name, p.garment_type
+     FROM store_stock ss
+     JOIN stores s ON s.id = ss.store_id
+     LEFT JOIN products p ON p.id = ss.product_id
+     ${where}
+     ORDER BY ss.total_qty ASC`,
+    params
+  );
+  return rows.map((r) => ({
+    ...r,
+    size_stock: JSON.parse(r.size_stock_json || '{}') as Record<string, number>,
+  }));
+}
+
+export async function getProductStockAcrossStores(productId: string): Promise<StoreStock[]> {
+  const rows = await getDb().getAllAsync<StoreStock>(
+    `SELECT ss.*, s.name as store_name, p.design_name, p.garment_type
+     FROM store_stock ss
+     JOIN stores s ON s.id = ss.store_id
+     LEFT JOIN products p ON p.id = ss.product_id
+     WHERE ss.product_id = ?
+     ORDER BY ss.total_qty DESC`,
+    [productId]
+  );
+  return rows.map((r) => ({
+    ...r,
+    size_stock: JSON.parse(r.size_stock_json || '{}') as Record<string, number>,
+  }));
+}
+
+export async function updateStoreStock(
+  storeId: number,
+  productId: string,
+  sizeStockJson: Record<string, number>,
+): Promise<void> {
+  const totalQty = Object.values(sizeStockJson).reduce((a, b) => a + b, 0);
+  await getDb().runAsync(
+    `INSERT INTO store_stock (store_id, product_id, size_stock_json, total_qty, last_updated)
+     VALUES (?,?,?,?,datetime('now'))
+     ON CONFLICT(store_id, product_id) DO UPDATE SET
+       size_stock_json = excluded.size_stock_json,
+       total_qty = excluded.total_qty,
+       last_updated = datetime('now')`,
+    [storeId, productId, JSON.stringify(sizeStockJson), totalQty]
+  );
+}
+
+export async function createTransfer(
+  fromStoreId: number,
+  toStoreId: number,
+  productId: string,
+  sizeTransferJson: Record<string, number>,
+  reason?: string,
+  requestedBy?: string,
+): Promise<number> {
+  const totalQty = Object.values(sizeTransferJson).reduce((a, b) => a + b, 0);
+  const result = await getDb().runAsync(
+    `INSERT INTO stock_transfers
+       (from_store_id, to_store_id, product_id, size_transfer_json, total_qty, status, reason, requested_by)
+     VALUES (?,?,?,?,?,?,?,?)`,
+    [fromStoreId, toStoreId, productId, JSON.stringify(sizeTransferJson), totalQty, 'requested', reason ?? null, requestedBy ?? null]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function getTransfers(storeId?: number, status?: string): Promise<StockTransfer[]> {
+  const db = getDb();
+  const conditions: string[] = [];
+  const params: (number | string)[] = [];
+  if (storeId != null) {
+    conditions.push('(st.from_store_id = ? OR st.to_store_id = ?)');
+    params.push(storeId, storeId);
+  }
+  if (status) { conditions.push('st.status = ?'); params.push(status); }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const rows = await db.getAllAsync<StockTransfer>(
+    `SELECT st.*, fs.name as from_store_name, ts.name as to_store_name, p.design_name
+     FROM stock_transfers st
+     JOIN stores fs ON fs.id = st.from_store_id
+     JOIN stores ts ON ts.id = st.to_store_id
+     LEFT JOIN products p ON p.id = st.product_id
+     ${where}
+     ORDER BY st.created_at DESC`,
+    params
+  );
+  return rows.map((r) => ({
+    ...r,
+    size_transfer: JSON.parse(r.size_transfer_json || '{}') as Record<string, number>,
+  }));
+}
+
+export async function updateTransferStatus(
+  transferId: number,
+  status: StockTransfer['status'],
+  approvedBy?: string,
+): Promise<void> {
+  await getDb().runAsync(
+    `UPDATE stock_transfers SET status = ?, approved_by = COALESCE(?, approved_by), updated_at = datetime('now') WHERE id = ?`,
+    [status, approvedBy ?? null, transferId]
+  );
+}
+
+// ── Customer Demands ──────────────────────────────────────────────────────────
+
+export async function createDemand(data: Partial<CustomerDemand>): Promise<number> {
+  const result = await getDb().runAsync(
+    `INSERT INTO customer_demands
+       (customer_phone, customer_name, description, photo_uri, garment_type, color_preference,
+        price_range_min, price_range_max, store_id, captured_by, notes)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      data.customer_phone ?? null, data.customer_name ?? null,
+      data.description ?? '', data.photo_uri ?? null,
+      data.garment_type ?? null, data.color_preference ?? null,
+      data.price_range_min ?? null, data.price_range_max ?? null,
+      data.store_id ?? null, data.captured_by ?? null, data.notes ?? null,
+    ]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function getDemands(storeId?: number, status?: string): Promise<CustomerDemand[]> {
+  const db = getDb();
+  const conditions: string[] = [];
+  const params: (number | string)[] = [];
+  if (storeId != null) { conditions.push('cd.store_id = ?'); params.push(storeId); }
+  if (status) { conditions.push('cd.status = ?'); params.push(status); }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  return db.getAllAsync<CustomerDemand>(
+    `SELECT cd.*, s.name as store_name
+     FROM customer_demands cd
+     LEFT JOIN stores s ON s.id = cd.store_id
+     ${where}
+     ORDER BY cd.created_at DESC`,
+    params
+  );
+}
+
+export async function updateDemandStatus(
+  demandId: number,
+  status: CustomerDemand['status'],
+  matchedProductId?: string,
+): Promise<void> {
+  await getDb().runAsync(
+    `UPDATE customer_demands SET status = ?,
+       matched_product_id = COALESCE(?, matched_product_id),
+       fulfilled_date = CASE WHEN ? = 'fulfilled' THEN datetime('now') ELSE fulfilled_date END
+     WHERE id = ?`,
+    [status, matchedProductId ?? null, status, demandId]
+  );
+}
+
+export async function getDemandStats(): Promise<{
+  open: number; matched: number; fulfilled: number; expired: number;
+  topRequests: { description: string; count: number }[];
+}> {
+  const db = getDb();
+  const counts = await db.getAllAsync<{ status: string; count: number }>(
+    `SELECT status, COUNT(*) as count FROM customer_demands GROUP BY status`
+  );
+  const countMap: Record<string, number> = {};
+  counts.forEach((r) => { countMap[r.status] = r.count; });
+
+  const topRequests = await db.getAllAsync<{ description: string; count: number }>(
+    `SELECT description, COUNT(*) as count FROM customer_demands
+     WHERE status = 'open' GROUP BY description ORDER BY count DESC LIMIT 5`
+  );
+
+  return {
+    open: countMap['open'] ?? 0,
+    matched: countMap['matched'] ?? 0,
+    fulfilled: countMap['fulfilled'] ?? 0,
+    expired: countMap['expired'] ?? 0,
+    topRequests,
+  };
+}
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+export async function createNotification(
+  type: AppNotification['type'],
+  title: string,
+  body: string,
+  refType?: string,
+  refId?: string,
+): Promise<void> {
+  // Deduplicate: skip if identical unread notification already exists
+  const existing = await getDb().getFirstAsync<{ id: number }>(
+    `SELECT id FROM notifications WHERE type = ? AND title = ? AND is_read = 0`,
+    [type, title]
+  );
+  if (existing) return;
+  await getDb().runAsync(
+    `INSERT INTO notifications (type, title, body, reference_type, reference_id) VALUES (?,?,?,?,?)`,
+    [type, title, body, refType ?? null, refId ?? null]
+  );
+}
+
+export async function getNotifications(unreadOnly = false): Promise<AppNotification[]> {
+  const where = unreadOnly ? 'WHERE is_read = 0' : '';
+  return getDb().getAllAsync<AppNotification>(
+    `SELECT * FROM notifications ${where} ORDER BY created_at DESC LIMIT 100`
+  );
+}
+
+export async function markRead(notificationId: number): Promise<void> {
+  await getDb().runAsync(`UPDATE notifications SET is_read = 1 WHERE id = ?`, [notificationId]);
+}
+
+export async function markAllRead(): Promise<void> {
+  await getDb().runAsync(`UPDATE notifications SET is_read = 1`);
+}
+
+export async function getUnreadCount(): Promise<number> {
+  const row = await getDb().getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) as count FROM notifications WHERE is_read = 0`
+  );
+  return row?.count ?? 0;
 }
