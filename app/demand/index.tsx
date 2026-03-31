@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  TextInput, ActivityIndicator, Image, Alert, RefreshControl,
+  TextInput, ActivityIndicator, Image, Alert, RefreshControl, Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -177,11 +177,12 @@ function DemandCard({
   demand: CustomerDemand;
   onMarkFulfilled: (d: CustomerDemand) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const dotColor = STATUS_COLOR[d.status] ?? 'rgba(255,255,255,0.2)';
   const hasPrice = d.price_range_min != null || d.price_range_max != null;
 
   return (
-    <View style={styles.card}>
+    <TouchableOpacity style={styles.card} onPress={() => setExpanded(!expanded)} activeOpacity={0.85}>
       {/* Top row */}
       <View style={styles.cardTop}>
         <View style={styles.cardLeft}>
@@ -242,7 +243,26 @@ function DemandCard({
           )}
         </View>
       )}
-    </View>
+
+      {/* Expanded section */}
+      {expanded && (
+        <View style={styles.expandedSection}>
+          {d.notes ? <Text style={styles.expandedNotes}>{d.notes}</Text> : null}
+          <View style={styles.contactRow}>
+            {d.customer_phone ? (
+              <TouchableOpacity style={styles.callBtn} onPress={() => Linking.openURL(`tel:${d.customer_phone}`)}>
+                <Text style={styles.callBtnText}>📞 Call</Text>
+              </TouchableOpacity>
+            ) : null}
+            {d.customer_phone ? (
+              <TouchableOpacity style={styles.waBtn} onPress={() => Linking.openURL(`whatsapp://send?phone=91${d.customer_phone}`)}>
+                <Text style={styles.waBtnText}>💬 WhatsApp</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -405,4 +425,12 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   findBtnText: { fontSize: 12, fontWeight: '700', color: colors.blue, fontFamily: 'Inter_700Bold' },
+
+  expandedSection: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' },
+  expandedNotes: { fontSize: 12, color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_400Regular', marginBottom: 8 },
+  contactRow: { flexDirection: 'row', gap: 8 },
+  callBtn: { backgroundColor: 'rgba(93,202,165,0.15)', borderWidth: 1, borderColor: 'rgba(93,202,165,0.3)', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
+  callBtnText: { fontSize: 12, fontWeight: '700', color: '#5DCAA5', fontFamily: 'Inter_700Bold' },
+  waBtn: { backgroundColor: 'rgba(55,138,221,0.15)', borderWidth: 1, borderColor: 'rgba(55,138,221,0.3)', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
+  waBtnText: { fontSize: 12, fontWeight: '700', color: '#378ADD', fontFamily: 'Inter_700Bold' },
 });

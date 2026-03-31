@@ -10,6 +10,7 @@ import { colors } from '../../constants/theme';
 import {
   getGRN, getStores, getAllocationsByGRN,
   createAllocation, deleteAllocationsByGRN,
+  getStoreStock, updateStoreStock,
 } from '../../db/database';
 import type { GRNRecord, GRNItem, Store } from '../../db/types';
 
@@ -146,6 +147,37 @@ export default function AllocateScreen() {
           }
         }
       }
+      // Update store_stock for each store/product
+      // Build a map: storeId:productId → sizeMap
+      const stockUpdates: Map<string, Record<string, number>> = new Map();
+      for (const item of grn.items ?? []) {
+        for (const store of stores) {
+          const sizeMap = alloc[item.id]?.[store.id] ?? {};
+          const total = Object.values(sizeMap).reduce((s, v) => s + v, 0);
+          if (total > 0 && item.product_id) {
+            const key = `${store.id}:${item.product_id}`;
+            if (!stockUpdates.has(key)) stockUpdates.set(key, {});
+            const existing = stockUpdates.get(key)!;
+            for (const [size, qty] of Object.entries(sizeMap)) {
+              existing[size] = (existing[size] ?? 0) + qty;
+            }
+          }
+        }
+      }
+
+      // Fetch existing stock and merge
+      for (const [key, newSizes] of stockUpdates.entries()) {
+        const [storeIdStr, productId] = key.split(':');
+        const storeId = parseInt(storeIdStr, 10);
+        const allStock = await getStoreStock(storeId);
+        const existing = allStock.find(s => s.product_id === productId);
+        const mergedSizes: Record<string, number> = { ...(existing?.size_stock ?? {}) };
+        for (const [size, qty] of Object.entries(newSizes)) {
+          mergedSizes[size] = (mergedSizes[size] ?? 0) + qty;
+        }
+        await updateStoreStock(storeId, productId, mergedSizes);
+      }
+
       Alert.alert('Saved', 'Stock allocations saved successfully.');
       router.back();
     } catch (e) {

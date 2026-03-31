@@ -90,6 +90,40 @@ export default function POSummaryScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Date range filter */}
+        <View style={styles.filterRow}>
+          <View style={styles.filterField}>
+            <Text style={styles.filterLabel}>FROM</Text>
+            <TextInput
+              style={styles.filterInput}
+              value={pendingFrom}
+              onChangeText={setPendingFrom}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor="rgba(255,255,255,0.2)"
+            />
+          </View>
+          <View style={styles.filterField}>
+            <Text style={styles.filterLabel}>TO</Text>
+            <TextInput
+              style={styles.filterInput}
+              value={pendingTo}
+              onChangeText={setPendingTo}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor="rgba(255,255,255,0.2)"
+            />
+          </View>
+          <TouchableOpacity
+            style={styles.filterBtn}
+            onPress={() => {
+              setDateFrom(pendingFrom);
+              setDateTo(pendingTo);
+              fetchReport(pendingFrom, pendingTo);
+            }}
+          >
+            <Text style={styles.filterBtnText}>Filter</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Hero stats */}
         {report && (
           <>
@@ -180,6 +214,43 @@ const styles = StyleSheet.create({
     borderColor: hexToRgba(colors.amber, 0.25),
   },
   exportBtnText: { fontSize: 13, fontWeight: '700', color: colors.amber, fontFamily: 'Inter_700Bold' },
+
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingHorizontal: 20,
+    marginBottom: 16,
+    gap: 8,
+  },
+  filterField: { flex: 1 },
+  filterLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    color: 'rgba(255,255,255,0.25)',
+    fontFamily: 'Inter_700Bold',
+    marginBottom: 4,
+  },
+  filterInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontFamily: 'Inter_400Regular',
+  },
+  filterBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: hexToRgba(colors.teal, 0.15),
+    borderWidth: 1,
+    borderColor: hexToRgba(colors.teal, 0.3),
+  },
+  filterBtnText: { fontSize: 13, fontWeight: '700', color: colors.teal, fontFamily: 'Inter_700Bold' },
 
   heroRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 20, marginBottom: 16 },
   heroCard: {

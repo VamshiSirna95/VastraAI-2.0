@@ -35,6 +35,7 @@ const ITEM_STATUS_CFG: Record<ItemStatus, { label: string; color: string }> = {
 // Local editable state per GRN item
 type LocalItem = {
   sizeReceived: Record<string, string>; // sizeLabel → received qty string
+  sizeAccepted: Record<string, string>; // sizeLabel → accepted qty string
   acceptedStr: string;                  // total accepted (defaults to total received)
   notes: string;
   rejectionReason: string;
@@ -42,9 +43,11 @@ type LocalItem = {
 
 function initLocalItem(item: GRNItem): LocalItem {
   const sizeReceived: Record<string, string> = {};
+  const sizeAccepted: Record<string, string> = {};
   if (item.size_data) {
     for (const [lbl, entry] of Object.entries(item.size_data)) {
       sizeReceived[lbl] = entry.received > 0 ? String(entry.received) : '';
+      sizeAccepted[lbl] = entry.accepted > 0 ? String(entry.accepted) : (entry.received > 0 ? String(entry.received) : '');
     }
   }
   const totalReceived = Object.values(sizeReceived).reduce(
@@ -52,6 +55,7 @@ function initLocalItem(item: GRNItem): LocalItem {
   );
   return {
     sizeReceived,
+    sizeAccepted,
     acceptedStr: item.accepted_qty > 0 ? String(item.accepted_qty) : (totalReceived > 0 ? String(totalReceived) : ''),
     notes: item.notes ?? '',
     rejectionReason: item.rejection_reason ?? '',
@@ -142,9 +146,16 @@ export default function GRNScreen() {
       const currentAccepted = parseInt(current.acceptedStr || '0', 10) || 0;
       const newAccepted = currentAccepted >= oldTotal ? newTotal : currentAccepted;
 
+      // Also update per-size accepted if it was tracking received
+      const newSizeAccepted = { ...current.sizeAccepted };
+      const oldRcvd = parseInt(current.sizeReceived[sizeLabel] || '0', 10) || 0;
+      const newRcvd = parseInt(cleaned || '0', 10) || 0;
+      const oldAccepted = parseInt(current.sizeAccepted[sizeLabel] || '0', 10) || 0;
+      if (oldAccepted >= oldRcvd) newSizeAccepted[sizeLabel] = String(newRcvd);
+
       return {
         ...prev,
-        [itemId]: { ...current, sizeReceived: newSizeReceived, acceptedStr: String(newAccepted) },
+        [itemId]: { ...current, sizeReceived: newSizeReceived, sizeAccepted: newSizeAccepted, acceptedStr: String(newAccepted) },
       };
     });
   };
@@ -163,23 +174,15 @@ export default function GRNScreen() {
       : rejected > 0 ? 'rejected'
       : 'accepted';
 
-    // Build size_data with per-size received; distribute item-level rejection from last sizes first
+    // Build size_data with per-size received and per-size accepted
     const finalSizeData: GRNSizeData = {};
     if (item.size_data) {
       const sizeEntries = Object.entries(item.size_data);
-      // First pass: set received per size, default accepted = received
       for (const [lbl, entry] of sizeEntries) {
         const rcvd = parseInt(local.sizeReceived[lbl] || '0', 10) || 0;
-        finalSizeData[lbl] = { ordered: entry.ordered, received: rcvd, accepted: rcvd, rejected: 0 };
-      }
-      // Second pass: distribute rejection from last sizes first
-      let remainingRejection = rejected;
-      for (let i = sizeEntries.length - 1; i >= 0 && remainingRejection > 0; i--) {
-        const lbl = sizeEntries[i][0];
-        const entry = finalSizeData[lbl];
-        const sizeReject = Math.min(entry.received, remainingRejection);
-        finalSizeData[lbl] = { ...entry, accepted: entry.received - sizeReject, rejected: sizeReject };
-        remainingRejection -= sizeReject;
+        const accepted = Math.min(rcvd, parseInt(local.sizeAccepted[lbl] || String(rcvd), 10) || rcvd);
+        const rejected = Math.max(0, rcvd - accepted);
+        finalSizeData[lbl] = { ordered: entry.ordered, received: rcvd, accepted, rejected };
       }
     }
 
@@ -463,6 +466,8 @@ export default function GRNScreen() {
                     <Text style={[styles.sizeCell, styles.sizeCellHeader]}>SIZE</Text>
                     <Text style={[styles.ordCell, styles.sizeCellHeader]}>ORD</Text>
                     <Text style={[styles.rcvCell, styles.sizeCellHeader]}>RCVD</Text>
+                    <Text style={[styles.acptCell, styles.sizeCellHeader]}>ACPT</Text>
+                    <Text style={[styles.rjctCell, styles.sizeCellHeader]}>RJCT</Text>
                     <Text style={[styles.pendCell, styles.sizeCellHeader]}>PEND</Text>
                   </View>
 
@@ -487,6 +492,34 @@ export default function GRNScreen() {
                           editable={!isFinalized}
                           selectTextOnFocus
                         />
+                        <TextInput
+                          style={styles.acptInput}
+                          value={local.sizeAccepted[lbl] ?? String(rcvd)}
+                          onChangeText={(v) => {
+                            const cleaned = v.replace(/[^0-9]/g, '');
+                            setLocalData((prev) => ({
+                              ...prev,
+                              [item.id]: { ...prev[item.id], sizeAccepted: { ...prev[item.id].sizeAccepted, [lbl]: cleaned } },
+                            }));
+                          }}
+                          onBlur={() => persistItem(item)}
+                          keyboardType="numeric"
+                          placeholder="0"
+                          placeholderTextColor="rgba(255,255,255,0.15)"
+                          editable={!isFinalized}
+                          selectTextOnFocus
+                        />
+                        {(() => {
+                          const accepted = parseInt(local.sizeAccepted[lbl] || String(rcvd), 10) || 0;
+                          const rjct = Math.max(0, rcvd - accepted);
+                          return (
+                            <View style={styles.rjctCell}>
+                              <Text style={[styles.rjctText, rjct > 0 ? { color: colors.red } : { color: 'rgba(255,255,255,0.2)' }]}>
+                                {rjct > 0 ? rjct : '—'}
+                              </Text>
+                            </View>
+                          );
+                        })()}
                         <View style={styles.pendCell}>
                           <Text style={[styles.pendText, { color: pendColor }]}>{pendLabel}</Text>
                         </View>
@@ -499,6 +532,8 @@ export default function GRNScreen() {
                     <Text style={[styles.sizeCell, styles.totalLabelText]}>Total</Text>
                     <Text style={[styles.ordCell, styles.totalValueText]}>{item.ordered_qty}</Text>
                     <Text style={[styles.rcvCell, styles.totalValueText]}>{itemReceived}</Text>
+                    <Text style={[styles.acptCell, styles.totalValueText, { color: colors.teal }]}>{itemAccepted}</Text>
+                    <Text style={[styles.rjctCell, styles.totalValueText, { color: itemRejected > 0 ? colors.red : 'rgba(255,255,255,0.2)' }]}>{itemRejected > 0 ? itemRejected : '—'}</Text>
                     <Text style={[styles.pendCell, styles.totalValueText, { color: itemPending > 0 ? colors.amber : colors.teal }]}>
                       {itemPending}
                     </Text>
@@ -794,7 +829,7 @@ const styles = StyleSheet.create({
   },
   sizeCell: { width: 32, marginRight: 4 },
   ordCell: { flex: 1, textAlign: 'center' },
-  rcvCell: { width: 56, textAlign: 'center' },
+  rcvCell: { width: 46, textAlign: 'center' },
   pendCell: { width: 44, alignItems: 'flex-end' },
   sizeCellHeader: {
     fontSize: 10,
@@ -807,19 +842,36 @@ const styles = StyleSheet.create({
   sizeLabelText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF', fontFamily: 'Inter_700Bold' },
   ordText: { fontSize: 13, color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_400Regular', textAlign: 'center' },
   rcvInput: {
-    width: 56,
+    width: 46,
     height: 34,
     backgroundColor: 'rgba(55,138,221,0.08)',
     borderWidth: 1,
     borderColor: 'rgba(55,138,221,0.2)',
     borderRadius: 7,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',
     fontFamily: 'Inter_700Bold',
     textAlign: 'center',
     padding: 0,
   },
+  acptCell: { width: 44, textAlign: 'center' },
+  acptInput: {
+    width: 44,
+    height: 34,
+    backgroundColor: 'rgba(93,202,165,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(93,202,165,0.2)',
+    borderRadius: 7,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: 'Inter_700Bold',
+    textAlign: 'center',
+    padding: 0,
+  },
+  rjctCell: { width: 36, alignItems: 'center' },
+  rjctText: { fontSize: 12, fontWeight: '700', fontFamily: 'Inter_700Bold', textAlign: 'center' },
   pendText: { fontSize: 13, fontWeight: '700', fontFamily: 'Inter_700Bold', textAlign: 'right' },
   totalLabelText: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_700Bold' },
   totalValueText: { fontSize: 13, fontWeight: '800', fontFamily: 'Inter_800ExtraBold', textAlign: 'center' },

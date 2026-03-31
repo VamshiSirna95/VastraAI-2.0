@@ -14,6 +14,7 @@ import {
 import { initDatabase } from '../db/database';
 import { seedDemoData } from '../db/seed';
 import { isLoggedIn } from '../services/auth';
+import { generateAutoNotifications } from '../services/notifications';
 import AuroraBackground from '../components/AuroraBackground';
 
 SplashScreen.preventAutoHideAsync();
@@ -38,6 +39,7 @@ export default function RootLayout() {
   useEffect(() => {
     initDatabase()
       .then(() => seedDemoData())
+      .then(() => generateAutoNotifications().catch(() => {}))
       .then(async () => {
         const loggedIn = await isLoggedIn();
         setAuthed(loggedIn);

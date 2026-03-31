@@ -73,6 +73,8 @@ function getDefaults(name: string) {
   return SEASONAL_DEFAULTS[name] ?? { colors: '', patterns: '', categories: [] };
 }
 
+const CATEGORY_OPTIONS = ['Kurta', 'Saree', 'Lehenga', 'Salwar', 'Dupatta', 'Shirt', 'T-shirt', 'Jeans', 'Trousers', 'Palazzo', 'Dress', 'Fabric', 'Sherwani', 'Other'];
+
 const PRIORITY_OPTS: SeasonalPlanItem['priority'][] = ['high', 'medium', 'low'];
 const PRIORITY_COLOR: Record<string, string> = {
   high: colors.red,
@@ -91,6 +93,7 @@ function ItemCard({
   onDelete: (id: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [showCatModal, setShowCatModal] = useState(false);
   const [category, setCategory] = useState(item.category);
   const [targetQty, setTargetQty] = useState(String(item.target_qty ?? ''));
   const [targetValue, setTargetValue] = useState(String(item.target_value ?? ''));
@@ -148,8 +151,37 @@ function ItemCard({
       {expanded && (
         <View style={styles.itemExpanded}>
           <InputRow label="Category">
-            <TextInput style={styles.fieldInput} value={category} onChangeText={setCategory} placeholderTextColor="rgba(255,255,255,0.2)" placeholder="e.g. Saree" />
+            <TouchableOpacity
+              style={[styles.fieldInput, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+              onPress={() => setShowCatModal(true)}
+            >
+              <Text style={{ color: category ? '#FFFFFF' : 'rgba(255,255,255,0.2)', fontFamily: 'Inter_400Regular', fontSize: 14 }}>
+                {category || 'Select category…'}
+              </Text>
+              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                <Path d="M6 9l6 6 6-6" stroke="rgba(255,255,255,0.4)" strokeWidth={2} strokeLinecap="round" />
+              </Svg>
+            </TouchableOpacity>
           </InputRow>
+
+          <Modal visible={showCatModal} transparent animationType="fade" onRequestClose={() => setShowCatModal(false)}>
+            <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowCatModal(false)} activeOpacity={1}>
+              <View style={styles.modalSheet}>
+                <Text style={styles.modalTitle}>Select Category</Text>
+                <ScrollView>
+                  {CATEGORY_OPTIONS.map((opt) => (
+                    <TouchableOpacity
+                      key={opt}
+                      style={[styles.modalOption, category === opt && styles.modalOptionActive]}
+                      onPress={() => { setCategory(opt); setShowCatModal(false); }}
+                    >
+                      <Text style={[styles.modalOptionText, category === opt && styles.modalOptionTextActive]}>{opt}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </TouchableOpacity>
+          </Modal>
 
           <View style={styles.fieldRow}>
             <View style={styles.fieldHalf}>
@@ -610,4 +642,13 @@ const styles = StyleSheet.create({
     borderRadius: 14, paddingVertical: 14, marginTop: 16,
   },
   genPOsBtnText: { fontSize: 14, fontWeight: '700', color: colors.purple, fontFamily: 'Inter_700Bold' },
+
+  // Category modal
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-end' },
+  modalSheet: { backgroundColor: '#111', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '70%' },
+  modalTitle: { fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_700Bold', marginBottom: 12, letterSpacing: 1.5, textTransform: 'uppercase' },
+  modalOption: { paddingVertical: 13, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
+  modalOptionActive: { backgroundColor: 'rgba(93,202,165,0.1)' },
+  modalOptionText: { fontSize: 15, color: 'rgba(255,255,255,0.7)', fontFamily: 'Inter_400Regular' },
+  modalOptionTextActive: { color: '#5DCAA5', fontWeight: '700', fontFamily: 'Inter_700Bold' },
 });

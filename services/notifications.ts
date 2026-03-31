@@ -8,6 +8,7 @@ import {
   getStoreStock,
   getDemands,
   getTransfers,
+  getDb,
 } from '../db/database';
 
 export { getNotifications, markRead, markAllRead, getUnreadCount };
@@ -29,13 +30,17 @@ export async function generateAutoNotifications(): Promise<void> {
         ? Math.floor((Date.now() - dispatchDate.getTime()) / 86400000)
         : 0;
       if (daysAgo >= 3) {
-        await createNotification(
-          'grn_due',
-          `GRN overdue: ${po.po_number}`,
-          `PO ${po.po_number} was dispatched ${daysAgo} day${daysAgo !== 1 ? 's' : ''} ago. Start receiving.`,
-          'po',
-          po.id,
-        );
+        const oneDayAgo = new Date(Date.now() - 24*60*60*1000).toISOString();
+        const exists = await getDb().getFirstAsync('SELECT id FROM notifications WHERE reference_type = ? AND reference_id = ? AND created_at > ?', ['po', po.id, oneDayAgo]);
+        if (!exists) {
+          await createNotification(
+            'grn_due',
+            `GRN overdue: ${po.po_number}`,
+            `PO ${po.po_number} was dispatched ${daysAgo} day${daysAgo !== 1 ? 's' : ''} ago. Start receiving.`,
+            'po',
+            po.id,
+          );
+        }
       }
     }
   } catch { /* skip if table not ready */ }
@@ -86,6 +91,14 @@ export async function generateAutoNotifications(): Promise<void> {
         'transfer',
         String(t.id),
       );
+    }
+  } catch { /* skip */ }
+
+  // 5. Welcome notification if no notifications exist at all
+  try {
+    const any = await getDb().getFirstAsync<{id: number}>('SELECT id FROM notifications LIMIT 1');
+    if (!any) {
+      await createNotification('system', 'Welcome to VASTRA', 'Your merchandise intelligence platform is ready. Start by scanning your first product!', null, null);
     }
   } catch { /* skip */ }
 }

@@ -121,6 +121,11 @@ export default function VendorDetailScreen() {
   const isInactive = vendor.is_active === 0;
 
   const handleSave = async () => {
+    const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+    if (form.gstin && form.gstin.trim() && !GSTIN_REGEX.test(form.gstin.trim().toUpperCase())) {
+      Alert.alert('Invalid GSTIN', 'Expected format: 36ABCDE1234F1Z5');
+      return;
+    }
     setSaving(true);
     try {
       await updateVendor(id!, form);

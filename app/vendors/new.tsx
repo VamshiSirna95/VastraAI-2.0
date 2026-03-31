@@ -73,6 +73,7 @@ export default function NewVendorScreen() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<Partial<Vendor>>({ rank: 'B', is_active: 1 });
+  const [gstinError, setGstinError] = useState('');
 
   const f = (key: keyof Vendor) => String(form[key] ?? '');
   const set = (key: keyof Vendor) => (v: string) => setForm((prev) => ({ ...prev, [key]: v }));
@@ -82,6 +83,12 @@ export default function NewVendorScreen() {
       Alert.alert('Required', 'Vendor name is required');
       return;
     }
+    const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+    if (form.gstin && form.gstin.trim() && !GSTIN_REGEX.test(form.gstin.trim().toUpperCase())) {
+      setGstinError('Invalid GSTIN format (e.g. 36ABCDE1234F1Z5)');
+      return;
+    }
+    setGstinError('');
     setSaving(true);
     try {
       const id = await createVendor({ ...form, name: form.name.trim() });
@@ -153,6 +160,7 @@ export default function NewVendorScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>BUSINESS</Text>
           <Field label="GSTIN" value={f('gstin')} onChange={set('gstin')} />
+          {gstinError ? <Text style={styles.fieldError}>{gstinError}</Text> : null}
           <Field label="PAN" value={f('pan')} onChange={set('pan')} />
           <Field label="Payment Terms" value={f('payment_terms')} onChange={set('payment_terms')} placeholder="e.g. 30 days, Advance" />
           <Field label="Avg Lead Days" value={f('avg_lead_days')} onChange={set('avg_lead_days')} keyboardType="numeric" />
@@ -232,4 +240,5 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   createBtnText: { fontSize: 16, fontWeight: '700', color: '#000', fontFamily: 'Inter_700Bold' },
+  fieldError: { fontSize: 11, color: '#E24B4A', fontFamily: 'Inter_400Regular', marginTop: 2, marginBottom: 4 },
 });
