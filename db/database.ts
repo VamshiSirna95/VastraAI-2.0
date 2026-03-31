@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { CREATE_TABLES } from './schema';
-import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt, GRNSizeData, Store, StockAllocation, User, AnalyticsData, VoiceNote, StoreStock, StockTransfer, CustomerDemand, AppNotification } from './types';
+import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt, GRNSizeData, Store, StockAllocation, User, AnalyticsData, VoiceNote, StoreStock, StockTransfer, CustomerDemand, AppNotification, SeasonalPlan, SeasonalPlanItem } from './types';
 import { SIZE_TEMPLATES } from './types';
 
 // ── DB singleton ──────────────────────────────────────────────────────────────
@@ -1825,4 +1825,100 @@ export async function getUnreadCount(): Promise<number> {
     `SELECT COUNT(*) as count FROM notifications WHERE is_read = 0`
   );
   return row?.count ?? 0;
+}
+
+// ── Seasonal Planning ─────────────────────────────────────────────────────────
+
+export async function createSeasonalPlan(data: Partial<SeasonalPlan>): Promise<number> {
+  const result = await getDb().runAsync(
+    `INSERT INTO seasonal_plans (season_name, season_type, start_date, end_date, target_budget, notes, status)
+     VALUES (?,?,?,?,?,?,?)`,
+    [
+      data.season_name ?? '', data.season_type ?? 'festival',
+      data.start_date ?? '', data.end_date ?? '',
+      data.target_budget ?? null, data.notes ?? null,
+      data.status ?? 'planning',
+    ]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function getSeasonalPlans(status?: string): Promise<SeasonalPlan[]> {
+  const db = getDb();
+  const where = status ? `WHERE sp.status = '${status}'` : '';
+  return db.getAllAsync<SeasonalPlan>(
+    `SELECT sp.*,
+       COUNT(spi.id) as item_count,
+       COALESCE(SUM(spi.target_value), 0) as allocated_value
+     FROM seasonal_plans sp
+     LEFT JOIN seasonal_plan_items spi ON spi.plan_id = sp.id
+     ${where}
+     GROUP BY sp.id
+     ORDER BY sp.start_date ASC`
+  );
+}
+
+export async function getSeasonalPlan(id: number): Promise<SeasonalPlan | null> {
+  return getDb().getFirstAsync<SeasonalPlan>(
+    `SELECT sp.*, COUNT(spi.id) as item_count, COALESCE(SUM(spi.target_value), 0) as allocated_value
+     FROM seasonal_plans sp
+     LEFT JOIN seasonal_plan_items spi ON spi.plan_id = sp.id
+     WHERE sp.id = ?
+     GROUP BY sp.id`,
+    [id]
+  ) ?? null;
+}
+
+export async function addPlanItem(planId: number, data: Partial<SeasonalPlanItem>): Promise<number> {
+  const result = await getDb().runAsync(
+    `INSERT INTO seasonal_plan_items (plan_id, category, target_qty, target_value, color_preference, pattern_preference, vendor_ids, notes, priority)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+    [
+      planId, data.category ?? '',
+      data.target_qty ?? null, data.target_value ?? null,
+      data.color_preference ?? null, data.pattern_preference ?? null,
+      data.vendor_ids ?? null, data.notes ?? null,
+      data.priority ?? 'medium',
+    ]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function getPlanItems(planId: number): Promise<SeasonalPlanItem[]> {
+  return getDb().getAllAsync<SeasonalPlanItem>(
+    `SELECT * FROM seasonal_plan_items WHERE plan_id = ? ORDER BY priority ASC, id ASC`,
+    [planId]
+  );
+}
+
+export async function updatePlanItem(itemId: number, data: Partial<SeasonalPlanItem>): Promise<void> {
+  const fields: string[] = [];
+  const vals: (string | number | null)[] = [];
+  if (data.category !== undefined) { fields.push('category = ?'); vals.push(data.category); }
+  if (data.target_qty !== undefined) { fields.push('target_qty = ?'); vals.push(data.target_qty ?? null); }
+  if (data.target_value !== undefined) { fields.push('target_value = ?'); vals.push(data.target_value ?? null); }
+  if (data.color_preference !== undefined) { fields.push('color_preference = ?'); vals.push(data.color_preference ?? null); }
+  if (data.pattern_preference !== undefined) { fields.push('pattern_preference = ?'); vals.push(data.pattern_preference ?? null); }
+  if (data.vendor_ids !== undefined) { fields.push('vendor_ids = ?'); vals.push(data.vendor_ids ?? null); }
+  if (data.notes !== undefined) { fields.push('notes = ?'); vals.push(data.notes ?? null); }
+  if (data.priority !== undefined) { fields.push('priority = ?'); vals.push(data.priority); }
+  if (fields.length === 0) return;
+  vals.push(itemId);
+  await getDb().runAsync(`UPDATE seasonal_plan_items SET ${fields.join(', ')} WHERE id = ?`, vals);
+}
+
+export async function deletePlanItem(itemId: number): Promise<void> {
+  await getDb().runAsync(`DELETE FROM seasonal_plan_items WHERE id = ?`, [itemId]);
+}
+
+export async function updateSeasonalPlan(id: number, data: Partial<SeasonalPlan>): Promise<void> {
+  const fields: string[] = [];
+  const vals: (string | number | null)[] = [];
+  if (data.season_name !== undefined) { fields.push('season_name = ?'); vals.push(data.season_name); }
+  if (data.target_budget !== undefined) { fields.push('target_budget = ?'); vals.push(data.target_budget ?? null); }
+  if (data.notes !== undefined) { fields.push('notes = ?'); vals.push(data.notes ?? null); }
+  if (data.status !== undefined) { fields.push('status = ?'); vals.push(data.status); }
+  if (fields.length === 0) return;
+  vals.push(id);
+  await getDb().runAsync(`UPDATE seasonal_plans SET ${fields.join(', ')} WHERE id = ?`, vals);
 }

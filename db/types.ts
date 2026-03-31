@@ -399,6 +399,34 @@ export interface AppNotification {
   created_at: string;
 }
 
+export interface SeasonalPlan {
+  id: number;
+  season_name: string;
+  season_type: 'festival' | 'wedding' | 'summer' | 'winter' | 'back_to_school' | 'custom';
+  start_date: string;
+  end_date: string;
+  target_budget?: number;
+  notes?: string;
+  status: 'planning' | 'active' | 'completed';
+  created_at: string;
+  // Aggregated
+  item_count?: number;
+  allocated_value?: number;
+}
+
+export interface SeasonalPlanItem {
+  id: number;
+  plan_id: number;
+  category: string;
+  target_qty?: number;
+  target_value?: number;
+  color_preference?: string;
+  pattern_preference?: string;
+  vendor_ids?: string; // JSON array
+  notes?: string;
+  priority: 'high' | 'medium' | 'low';
+}
+
 // Size templates per garment type
 export const SIZE_TEMPLATES: Record<string, string[]> = {
   'Shirt': ['S', 'M', 'L', 'XL', 'XXL'],

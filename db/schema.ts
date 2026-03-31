@@ -338,4 +338,31 @@ export const CREATE_TABLES = [
     is_read INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
   )`,
+
+  // Seasonal Plans — festival & seasonal purchase planning
+  `CREATE TABLE IF NOT EXISTS seasonal_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    season_name TEXT NOT NULL,
+    season_type TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    target_budget REAL,
+    notes TEXT,
+    status TEXT DEFAULT 'planning',
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
+
+  // Seasonal Plan Items — per-category breakdown within a plan
+  `CREATE TABLE IF NOT EXISTS seasonal_plan_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL REFERENCES seasonal_plans(id),
+    category TEXT NOT NULL,
+    target_qty INTEGER,
+    target_value REAL,
+    color_preference TEXT,
+    pattern_preference TEXT,
+    vendor_ids TEXT,
+    notes TEXT,
+    priority TEXT DEFAULT 'medium'
+  )`,
 ];
