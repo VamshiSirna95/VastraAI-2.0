@@ -1427,6 +1427,13 @@ export async function getUserCount(): Promise<number> {
   return row?.count ?? 0;
 }
 
+export async function updateUserPin(userId: number, newPin: string): Promise<void> {
+  await getDb().runAsync(
+    `UPDATE users SET pin = ? WHERE id = ?`,
+    [hashPin(newPin), userId]
+  );
+}
+
 // ── Voice Notes ──────────────────────────────────────────────────────────────
 
 export async function createVoiceNote(

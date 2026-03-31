@@ -9,14 +9,19 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import Svg, { Path, Circle } from 'react-native-svg';
 import { getOllamaUrl, setOllamaUrl, testConnection } from '../../services/ollama';
-import { getProductCount, getVendors, getDb } from '../../db/database';
+import { getCurrentUser, logout } from '../../services/auth';
+import { getProductCount, getVendors, getStores, getDb, verifyPin, updateUserPin } from '../../db/database';
 import { colors } from '../../constants/theme';
 import GlassInput from '../../components/ui/GlassInput';
+import PinInput from '../../components/PinInput';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type ConnectionStatus = 'idle' | 'testing' | 'connected' | 'failed';
+type PinFlow = 'off' | 'verify' | 'new' | 'confirm';
 
 // ── Section wrapper ───────────────────────────────────────────────────────────
 
@@ -29,27 +34,24 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-// ── Status dot ────────────────────────────────────────────────────────────────
+// ── Row helpers ───────────────────────────────────────────────────────────────
 
-function StatusDot({ color, pulse }: { color: string; pulse?: boolean }) {
+function InfoRow({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
-    <View style={[styles.statusDot, { backgroundColor: color }]} />
+    <View style={styles.infoRow}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={[styles.infoValue, accent ? { color: accent } : {}]}>{value}</Text>
+    </View>
   );
 }
 
-// ── Cascade row ───────────────────────────────────────────────────────────────
+function StatusDot({ color }: { color: string }) {
+  return <View style={[styles.statusDot, { backgroundColor: color }]} />;
+}
 
 function CascadeRow({
-  dotColor,
-  label,
-  badge,
-  badgeColor,
-}: {
-  dotColor: string;
-  label: string;
-  badge: string;
-  badgeColor: string;
-}) {
+  dotColor, label, badge, badgeColor,
+}: { dotColor: string; label: string; badge: string; badgeColor: string }) {
   return (
     <View style={styles.cascadeRow}>
       <StatusDot color={dotColor} />
@@ -61,22 +63,66 @@ function CascadeRow({
   );
 }
 
+// ── Role badge ────────────────────────────────────────────────────────────────
+
+const ROLE_COLORS: Record<string, string> = {
+  admin: colors.teal,
+  manager: colors.blue,
+  staff: colors.amber,
+};
+
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 export default function SettingsScreen() {
+  const router = useRouter();
+
+  // Profile
+  const [userName, setUserName] = useState('');
+  const [userRole, setUserRole] = useState('');
+  const [userPhone, setUserPhone] = useState('');
+  const [userId, setUserId] = useState<number | null>(null);
+
+  // Counts
+  const [productCount, setProductCount] = useState(0);
+  const [vendorCount, setVendorCount] = useState(0);
+  const [storeCount, setStoreCount] = useState(0);
+
+  // Ollama
   const [ollamaUrl, setOllamaUrlState] = useState('');
   const [connStatus, setConnStatus] = useState<ConnectionStatus>('idle');
   const [connModel, setConnModel] = useState('');
   const [connError, setConnError] = useState('');
-  const [productCount, setProductCount] = useState(0);
-  const [vendorCount, setVendorCount] = useState(0);
-  const [saving, setSaving] = useState(false);
+  const [savingUrl, setSavingUrl] = useState(false);
+
+  // Change PIN flow
+  const [pinFlow, setPinFlow] = useState<PinFlow>('off');
+  const [pinNewValue, setPinNewValue] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [pinEntry, setPinEntry] = useState('');
 
   useEffect(() => {
-    getOllamaUrl().then(setOllamaUrlState).catch(() => {});
-    getProductCount().then(setProductCount).catch(() => {});
-    getVendors().then((v) => setVendorCount(v.length)).catch(() => {});
+    (async () => {
+      const [session, url, pc, vs, stores] = await Promise.all([
+        getCurrentUser(),
+        getOllamaUrl().catch(() => ''),
+        getProductCount(),
+        getVendors(),
+        getStores(false),
+      ]);
+      if (session) {
+        setUserName(session.name);
+        setUserRole(session.role);
+        setUserPhone(session.phone);
+        setUserId(session.userId);
+      }
+      setOllamaUrlState(url);
+      setProductCount(pc);
+      setVendorCount(vs.length);
+      setStoreCount(stores.length);
+    })();
   }, []);
+
+  // ── Ollama ─────────────────────────────────────────────────────────────────
 
   const handleTestConnection = async () => {
     setConnStatus('testing');
@@ -98,19 +144,54 @@ export default function SettingsScreen() {
   };
 
   const handleSaveUrl = async () => {
-    setSaving(true);
+    setSavingUrl(true);
     try {
       await setOllamaUrl(ollamaUrl.trim());
       setConnStatus('idle');
     } finally {
-      setSaving(false);
+      setSavingUrl(false);
     }
   };
 
+  // ── Change PIN ─────────────────────────────────────────────────────────────
+
+  const handlePinVerify = async (pin: string) => {
+    if (!userId) return;
+    const ok = await verifyPin(userId, pin);
+    if (!ok) {
+      setPinError('Incorrect PIN');
+      return;
+    }
+    setPinError('');
+    setPinFlow('new');
+  };
+
+  const handlePinNew = (pin: string) => {
+    setPinNewValue(pin);
+    setPinFlow('confirm');
+  };
+
+  const handlePinConfirm = async (pin: string) => {
+    if (pin !== pinNewValue) {
+      setPinError('PINs do not match');
+      setPinFlow('new');
+      setPinNewValue('');
+      return;
+    }
+    if (!userId) return;
+    await updateUserPin(userId, pin);
+    setPinFlow('off');
+    setPinError('');
+    setPinNewValue('');
+    Alert.alert('PIN Changed', 'Your PIN has been updated successfully.');
+  };
+
+  // ── Data management ────────────────────────────────────────────────────────
+
   const handleClearDemoData = () => {
     Alert.alert(
-      'Clear Demo Data',
-      'This will permanently delete all products and vendors. This cannot be undone.',
+      'Reset Demo Data',
+      'This will permanently delete all products and vendors. Cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -134,7 +215,24 @@ export default function SettingsScreen() {
     );
   };
 
-  // Connection status display
+  // ── Logout ─────────────────────────────────────────────────────────────────
+
+  const handleLogout = () => {
+    Alert.alert('Log Out', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log Out',
+        style: 'destructive',
+        onPress: async () => {
+          await logout();
+          router.replace('/login');
+        },
+      },
+    ]);
+  };
+
+  // ── Connection status helpers ──────────────────────────────────────────────
+
   const connDotColor =
     connStatus === 'idle' ? 'rgba(255,255,255,0.2)'
     : connStatus === 'testing' ? colors.amber
@@ -147,6 +245,10 @@ export default function SettingsScreen() {
     : connStatus === 'connected' ? `Connected — model: ${connModel}`
     : `Connection failed — ${connError}`;
 
+  const roleColor = ROLE_COLORS[userRole] ?? colors.amber;
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <ScrollView
@@ -154,9 +256,103 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.screenLabel}>SETTINGS</Text>
+        <View style={styles.header}>
+          <Text style={styles.screenLabel}>SETTINGS</Text>
+          <Text style={styles.screenTitle}>Profile & Settings</Text>
+        </View>
 
-        {/* ── AI Configuration ─── */}
+        {/* ── Profile Card ─── */}
+        {userName ? (
+          <View style={styles.profileCard}>
+            <View style={[styles.profileAvatar, { backgroundColor: roleColor + '22' }]}>
+              <Text style={[styles.profileInitial, { color: roleColor }]}>
+                {(userName[0] ?? '?').toUpperCase()}
+              </Text>
+            </View>
+            <View style={styles.profileBody}>
+              <Text style={styles.profileName}>{userName}</Text>
+              <Text style={styles.profilePhone}>{userPhone}</Text>
+              <View style={[styles.roleBadge, { backgroundColor: roleColor + '22', borderColor: roleColor + '44' }]}>
+                <Text style={[styles.roleBadgeText, { color: roleColor }]}>
+                  {userRole.charAt(0).toUpperCase() + userRole.slice(1)}
+                </Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
+        {/* ── Change PIN ─── */}
+        <Section label="SECURITY">
+          {pinFlow === 'off' && (
+            <TouchableOpacity style={styles.actionRow} onPress={() => { setPinFlow('verify'); setPinError(''); setPinEntry(''); }}>
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                <Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="rgba(255,255,255,0.4)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+              <Text style={styles.actionRowText}>Change PIN</Text>
+              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                <Path d="M9 18l6-6-6-6" stroke="rgba(255,255,255,0.3)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            </TouchableOpacity>
+          )}
+
+          {pinFlow === 'verify' && (
+            <View style={styles.pinFlowContainer}>
+              <Text style={styles.pinFlowTitle}>Enter Current PIN</Text>
+              {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
+              <PinInput
+                value={pinEntry}
+                onChange={(v) => { setPinEntry(v); if (pinError) setPinError(''); }}
+                onComplete={async (pin) => { setPinEntry(''); await handlePinVerify(pin); }}
+                error={!!pinError}
+              />
+              <TouchableOpacity onPress={() => { setPinFlow('off'); setPinEntry(''); setPinError(''); }} style={styles.pinCancelBtn}>
+                <Text style={styles.pinCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {pinFlow === 'new' && (
+            <View style={styles.pinFlowContainer}>
+              <Text style={styles.pinFlowTitle}>Enter New PIN</Text>
+              <PinInput
+                value={pinEntry}
+                onChange={(v) => setPinEntry(v)}
+                onComplete={(pin) => { setPinEntry(''); handlePinNew(pin); }}
+                error={false}
+              />
+              <TouchableOpacity onPress={() => { setPinFlow('off'); setPinEntry(''); }} style={styles.pinCancelBtn}>
+                <Text style={styles.pinCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {pinFlow === 'confirm' && (
+            <View style={styles.pinFlowContainer}>
+              <Text style={styles.pinFlowTitle}>Confirm New PIN</Text>
+              {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
+              <PinInput
+                value={pinEntry}
+                onChange={(v) => { setPinEntry(v); if (pinError) setPinError(''); }}
+                onComplete={async (pin) => { setPinEntry(''); await handlePinConfirm(pin); }}
+                error={!!pinError}
+              />
+              <TouchableOpacity onPress={() => { setPinFlow('off'); setPinEntry(''); setPinError(''); setPinNewValue(''); }} style={styles.pinCancelBtn}>
+                <Text style={styles.pinCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </Section>
+
+        {/* ── Business Info ─── */}
+        <Section label="BUSINESS INFO">
+          <InfoRow label="Stores" value={String(storeCount)} accent={colors.blue} />
+          <View style={styles.divider} />
+          <InfoRow label="Products" value={String(productCount)} accent={colors.teal} />
+          <View style={styles.divider} />
+          <InfoRow label="Vendors" value={String(vendorCount)} accent={colors.teal} />
+        </Section>
+
+        {/* ── AI Engine ─── */}
         <Section label="AI ENGINE">
           <GlassInput
             label="Ollama Server URL"
@@ -168,7 +364,6 @@ export default function SettingsScreen() {
             keyboardType="url"
           />
 
-          {/* Connection status */}
           <View style={styles.connStatusRow}>
             <StatusDot color={connDotColor} />
             <Text style={styles.connStatusText}>{connStatusText}</Text>
@@ -177,7 +372,6 @@ export default function SettingsScreen() {
             )}
           </View>
 
-          {/* Buttons row */}
           <View style={styles.aiButtonsRow}>
             <TouchableOpacity
               style={styles.testBtn}
@@ -187,16 +381,16 @@ export default function SettingsScreen() {
               <Text style={styles.testBtnText}>Test Connection</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
+              style={[styles.saveUrlBtn, savingUrl && styles.saveBtnDisabled]}
               onPress={handleSaveUrl}
-              disabled={saving}
+              disabled={savingUrl}
             >
-              <Text style={styles.saveBtnText}>{saving ? 'Saving…' : 'Save'}</Text>
+              <Text style={styles.saveUrlBtnText}>{savingUrl ? 'Saving…' : 'Save'}</Text>
             </TouchableOpacity>
           </View>
         </Section>
 
-        {/* ── Detection Priority ─── */}
+        {/* ── Detection Cascade ─── */}
         <Section label="DETECTION CASCADE">
           <Text style={styles.cascadeInfo}>
             VASTRA tries Ollama first, falls back to on-device detection, then manual entry.
@@ -221,25 +415,25 @@ export default function SettingsScreen() {
           />
         </Section>
 
-        {/* ── App Info ─── */}
-        <Section label="APP INFO">
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Version</Text>
-            <Text style={styles.infoValue}>VASTRA v0.1.0</Text>
-          </View>
+        {/* ── Data Management ─── */}
+        <Section label="DATA MANAGEMENT">
+          <TouchableOpacity
+            style={styles.actionRow}
+            onPress={() => router.push('/po/deleted' as never)}
+          >
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+              <Path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" stroke="rgba(255,255,255,0.4)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+            <Text style={styles.actionRowText}>Deleted POs</Text>
+            <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+              <Path d="M9 18l6-6-6-6" stroke="rgba(255,255,255,0.3)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          </TouchableOpacity>
+
           <View style={styles.divider} />
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Products</Text>
-            <Text style={[styles.infoValue, { color: colors.teal }]}>{productCount}</Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Vendors</Text>
-            <Text style={[styles.infoValue, { color: colors.teal }]}>{vendorCount}</Text>
-          </View>
 
           <TouchableOpacity style={styles.clearBtn} onPress={handleClearDemoData}>
-            <Text style={styles.clearBtnText}>Clear Demo Data</Text>
+            <Text style={styles.clearBtnText}>Reset Demo Data</Text>
           </TouchableOpacity>
         </Section>
 
@@ -251,9 +445,19 @@ export default function SettingsScreen() {
           </View>
           <Text style={styles.brandSub}>Merchandise Intelligence Platform</Text>
           <Text style={styles.brandOrg}>K.M. Fashions / MGBT</Text>
+          <InfoRow label="Version" value="v2.0.0" />
           <Text style={styles.brandCredit}>Built with The Architect</Text>
         </Section>
 
+        {/* ── Logout ─── */}
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+            <Path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke={colors.red} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+          <Text style={styles.logoutBtnText}>Log Out</Text>
+        </TouchableOpacity>
+
+        <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -266,15 +470,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000000',
   },
-  scroll: {
-    flex: 1,
-  },
+  scroll: { flex: 1 },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 8,
     paddingBottom: 60,
   },
 
+  header: { marginBottom: 20, marginTop: 8 },
   screenLabel: {
     fontSize: 11,
     fontWeight: '700',
@@ -282,10 +485,67 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     color: 'rgba(255,255,255,0.25)',
     fontFamily: 'Inter_700Bold',
-    marginTop: 10,
-    marginBottom: 20,
+    marginBottom: 4,
+  },
+  screenTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    fontFamily: 'Inter_800ExtraBold',
   },
 
+  // Profile card
+  profileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  profileAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileInitial: {
+    fontSize: 22,
+    fontWeight: '900',
+    fontFamily: 'Inter_900Black',
+  },
+  profileBody: { flex: 1 },
+  profileName: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: 'Inter_700Bold',
+    marginBottom: 2,
+  },
+  profilePhone: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
+    fontFamily: 'Inter_400Regular',
+    marginBottom: 6,
+  },
+  roleBadge: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  roleBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
+  },
+
+  // Section
   section: {
     backgroundColor: 'rgba(255,255,255,0.03)',
     borderWidth: 1,
@@ -304,7 +564,43 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
 
-  // Connection
+  // Action rows (tappable)
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+  },
+  actionRowText: {
+    flex: 1,
+    fontSize: 15,
+    color: 'rgba(255,255,255,0.7)',
+    fontFamily: 'Inter_500Medium',
+  },
+
+  // PIN flow
+  pinFlowContainer: { alignItems: 'center', paddingVertical: 8 },
+  pinFlowTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: 'Inter_700Bold',
+    marginBottom: 16,
+  },
+  pinError: {
+    fontSize: 13,
+    color: colors.red,
+    fontFamily: 'Inter_400Regular',
+    marginBottom: 8,
+  },
+  pinCancelBtn: { marginTop: 12, padding: 8 },
+  pinCancelText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.35)',
+    fontFamily: 'Inter_400Regular',
+  },
+
+  // Ollama connection
   connStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -327,13 +623,8 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     flex: 1,
   },
-  connSpinner: {
-    marginLeft: 4,
-  },
-  aiButtonsRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
+  connSpinner: { marginLeft: 4 },
+  aiButtonsRow: { flexDirection: 'row', gap: 10 },
   testBtn: {
     flex: 1,
     backgroundColor: 'rgba(93,202,165,0.08)',
@@ -349,17 +640,15 @@ const styles = StyleSheet.create({
     color: colors.teal,
     fontFamily: 'Inter_700Bold',
   },
-  saveBtn: {
+  saveUrlBtn: {
     backgroundColor: colors.teal,
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 24,
     alignItems: 'center',
   },
-  saveBtnDisabled: {
-    opacity: 0.5,
-  },
-  saveBtnText: {
+  saveBtnDisabled: { opacity: 0.5 },
+  saveUrlBtnText: {
     fontSize: 14,
     fontWeight: '700',
     color: '#000000',
@@ -421,8 +710,10 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.04)',
   },
+
+  // Data management
   clearBtn: {
-    marginTop: 14,
+    marginTop: 10,
     backgroundColor: 'rgba(226,75,74,0.08)',
     borderWidth: 1,
     borderColor: 'rgba(226,75,74,0.2)',
@@ -474,5 +765,26 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     letterSpacing: 1,
     textTransform: 'uppercase',
+    marginTop: 4,
+  },
+
+  // Logout
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(226,75,74,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(226,75,74,0.2)',
+    borderRadius: 14,
+    paddingVertical: 14,
+    marginBottom: 16,
+  },
+  logoutBtnText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.red,
+    fontFamily: 'Inter_700Bold',
   },
 });
