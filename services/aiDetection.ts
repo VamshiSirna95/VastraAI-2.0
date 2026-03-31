@@ -15,13 +15,13 @@ export interface DetectedAttributes {
 const DETECTION_TIMEOUT = 15000;
 
 const EMPTY_RESULT: DetectedAttributes = {
-  garment_type: 'Unknown',
-  primary_color: 'Unknown',
-  pattern: 'Unknown',
-  fabric_guess: 'Unknown',
-  occasion: 'Unknown',
+  garment_type: '',
+  primary_color: '',
+  pattern: '',
+  fabric_guess: '',
+  occasion: '',
   confidence: 0,
-  raw_description: '',
+  raw_description: 'AI detection unavailable',
 };
 
 const PROMPT = `You are a fashion merchandise expert. Analyze this garment photograph and return ONLY a JSON object with these fields: garment_type (one of: Kurta, Saree, Lehenga, Salwar Set, Dupatta, Shirt, T-Shirt, Jeans, Trouser/Pant, Palazzo, Skirt, Dress, Blazer, Jacket, Sherwani, Fabric), primary_color (specific color name), secondary_color (if any, otherwise null), pattern (one of: Solid, Checks, Stripes, Printed, Floral, Geometric, Abstract, Embroidered, Woven, Plain), fabric_guess (best guess of fabric type), occasion (one of: Casual, Formal, Festive, Party, Wedding, Daily). Return ONLY valid JSON, no other text.`;
@@ -83,12 +83,12 @@ export async function detectAttributes(
 
       const parsed = JSON.parse(jsonMatch[0]) as Partial<DetectedAttributes>;
       return {
-        garment_type: parsed.garment_type ?? 'Unknown',
-        primary_color: parsed.primary_color ?? 'Unknown',
+        garment_type: parsed.garment_type ?? '',
+        primary_color: parsed.primary_color ?? '',
         secondary_color: parsed.secondary_color ?? undefined,
-        pattern: parsed.pattern ?? 'Unknown',
-        fabric_guess: parsed.fabric_guess ?? 'Unknown',
-        occasion: parsed.occasion ?? 'Unknown',
+        pattern: parsed.pattern ?? '',
+        fabric_guess: parsed.fabric_guess ?? '',
+        occasion: parsed.occasion ?? '',
         confidence: 0.85,
         raw_description: text,
       };

@@ -1132,23 +1132,29 @@ export interface POSummaryReport {
   topVendors: { vendor_name: string; count: number; value: number }[];
 }
 
-export async function getPOSummaryReport(): Promise<POSummaryReport> {
+export async function getPOSummaryReport(dateFrom?: string, dateTo?: string): Promise<POSummaryReport> {
   const db = getDb();
   const meta = await db.getFirstAsync<{ total: number; totalValue: number }>(
     `SELECT COUNT(*) as total, COALESCE(SUM(total_value),0) as totalValue
-     FROM purchase_orders WHERE is_deleted != 1 OR is_deleted IS NULL`
+     FROM purchase_orders WHERE (is_deleted != 1 OR is_deleted IS NULL)
+     AND (? IS NULL OR created_at >= ?) AND (? IS NULL OR created_at <= ?)`,
+    [dateFrom ?? null, dateFrom ?? null, dateTo ?? null, dateTo ?? null]
   );
   const byStatus = await db.getAllAsync<{ status: string; count: number; value: number }>(
     `SELECT status, COUNT(*) as count, COALESCE(SUM(total_value),0) as value
-     FROM purchase_orders WHERE is_deleted != 1 OR is_deleted IS NULL
-     GROUP BY status ORDER BY count DESC`
+     FROM purchase_orders WHERE (is_deleted != 1 OR is_deleted IS NULL)
+     AND (? IS NULL OR created_at >= ?) AND (? IS NULL OR created_at <= ?)
+     GROUP BY status ORDER BY count DESC`,
+    [dateFrom ?? null, dateFrom ?? null, dateTo ?? null, dateTo ?? null]
   );
   const topVendors = await db.getAllAsync<{ vendor_name: string; count: number; value: number }>(
     `SELECT v.name as vendor_name, COUNT(po.id) as count, COALESCE(SUM(po.total_value),0) as value
      FROM purchase_orders po
      LEFT JOIN vendors v ON po.vendor_id = v.id
-     WHERE po.is_deleted != 1 OR po.is_deleted IS NULL
-     GROUP BY po.vendor_id ORDER BY value DESC LIMIT 10`
+     WHERE (po.is_deleted != 1 OR po.is_deleted IS NULL)
+     AND (? IS NULL OR po.created_at >= ?) AND (? IS NULL OR po.created_at <= ?)
+     GROUP BY po.vendor_id ORDER BY value DESC LIMIT 10`,
+    [dateFrom ?? null, dateFrom ?? null, dateTo ?? null, dateTo ?? null]
   );
   return {
     total: meta?.total ?? 0,
@@ -1942,23 +1948,23 @@ export async function globalSearch(query: string): Promise<GlobalSearchResults> 
   const [products, vendors, pos, demands] = await Promise.all([
     db.getAllAsync<{ id: string; name: string; garment_type?: string; primary_color?: string }>(
       `SELECT id, design_name as name, garment_type, primary_color FROM products
-       WHERE (design_name LIKE ? OR garment_type LIKE ? OR primary_color LIKE ? OR barcode LIKE ?)
-         AND (is_deleted = 0 OR is_deleted IS NULL) LIMIT 3`,
+       WHERE (LOWER(design_name) LIKE LOWER(?) OR LOWER(garment_type) LIKE LOWER(?) OR LOWER(primary_color) LIKE LOWER(?) OR LOWER(barcode) LIKE LOWER(?))
+         AND (is_deleted = 0 OR is_deleted IS NULL) LIMIT 5`,
       [q, q, q, q]
     ),
     db.getAllAsync<{ id: string; name: string; city?: string; area?: string }>(
-      `SELECT id, name, city, area FROM vendors WHERE (name LIKE ? OR city LIKE ? OR area LIKE ?) LIMIT 3`,
+      `SELECT id, name, city, area FROM vendors WHERE (LOWER(name) LIKE LOWER(?) OR LOWER(city) LIKE LOWER(?) OR LOWER(area) LIKE LOWER(?)) LIMIT 5`,
       [q, q, q]
     ),
     db.getAllAsync<{ id: string; po_number: string; vendor_name?: string; status: string }>(
       `SELECT po.id, po.po_number, po.status, v.name as vendor_name
        FROM purchase_orders po LEFT JOIN vendors v ON v.id = po.vendor_id
-       WHERE po.po_number LIKE ? AND (po.is_deleted = 0 OR po.is_deleted IS NULL) LIMIT 3`,
+       WHERE LOWER(po.po_number) LIKE LOWER(?) AND (po.is_deleted = 0 OR po.is_deleted IS NULL) LIMIT 5`,
       [q]
     ),
     db.getAllAsync<{ id: number; description: string; status: string; customer_name?: string }>(
       `SELECT id, description, status, customer_name FROM customer_demands
-       WHERE description LIKE ? OR customer_name LIKE ? OR customer_phone LIKE ? LIMIT 3`,
+       WHERE LOWER(description) LIKE LOWER(?) OR LOWER(customer_name) LIKE LOWER(?) OR LOWER(customer_phone) LIKE LOWER(?) LIMIT 5`,
       [q, q, q]
     ),
   ]);

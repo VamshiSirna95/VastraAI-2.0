@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
@@ -30,13 +30,32 @@ const STATUS_COLOR: Record<string, string> = {
   closed: colors.teal,
 };
 
+function getMonthStart(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+function getToday(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
 export default function POSummaryScreen() {
   const router = useRouter();
   const [report, setReport] = useState<POSummaryReport | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [dateFrom, setDateFrom] = useState(getMonthStart());
+  const [dateTo, setDateTo] = useState(getToday());
+  const [pendingFrom, setPendingFrom] = useState(getMonthStart());
+  const [pendingTo, setPendingTo] = useState(getToday());
+
+  const fetchReport = useCallback((from: string, to: string) => {
+    getPOSummaryReport(from || undefined, to || undefined).then(setReport);
+  }, []);
 
   useFocusEffect(useCallback(() => {
-    getPOSummaryReport().then(setReport);
+    fetchReport(dateFrom, dateTo);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []));
 
   const handleExport = async () => {
