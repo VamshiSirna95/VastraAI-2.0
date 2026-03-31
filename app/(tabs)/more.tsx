@@ -13,7 +13,7 @@ import { useRouter } from 'expo-router';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { getOllamaUrl, setOllamaUrl, testConnection } from '../../services/ollama';
 import { getCurrentUser, logout } from '../../services/auth';
-import { getProductCount, getVendors, getStores, getDb, verifyPin, updateUserPin } from '../../db/database';
+import { getProductCount, getVendors, getStores, getDb, verifyPin, updateUserPin, getUnreadCount, getDeletedPOCount } from '../../db/database';
 import { colors } from '../../constants/theme';
 import GlassInput from '../../components/ui/GlassInput';
 import PinInput from '../../components/PinInput';
@@ -63,6 +63,36 @@ function CascadeRow({
   );
 }
 
+// ── NavRow ────────────────────────────────────────────────────────────────────
+
+function NavRow({
+  label, iconPath, iconColor, badge, badgeColor, onPress,
+}: {
+  label: string;
+  iconPath: string;
+  iconColor: string;
+  badge?: string;
+  badgeColor?: string;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity style={styles.actionRow} onPress={onPress}>
+      <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+        <Path d={iconPath} stroke={iconColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+      <Text style={styles.actionRowText}>{label}</Text>
+      {badge ? (
+        <View style={[styles.navBadge, { backgroundColor: (badgeColor ?? iconColor) + '22', borderColor: (badgeColor ?? iconColor) + '44' }]}>
+          <Text style={[styles.navBadgeText, { color: badgeColor ?? iconColor }]}>{badge}</Text>
+        </View>
+      ) : null}
+      <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+        <Path d="M9 18l6-6-6-6" stroke="rgba(255,255,255,0.3)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    </TouchableOpacity>
+  );
+}
+
 // ── Role badge ────────────────────────────────────────────────────────────────
 
 const ROLE_COLORS: Record<string, string> = {
@@ -86,6 +116,8 @@ export default function SettingsScreen() {
   const [productCount, setProductCount] = useState(0);
   const [vendorCount, setVendorCount] = useState(0);
   const [storeCount, setStoreCount] = useState(0);
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
+  const [deletedPoCount, setDeletedPoCount] = useState(0);
 
   // Ollama
   const [ollamaUrl, setOllamaUrlState] = useState('');
@@ -102,13 +134,17 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     (async () => {
-      const [session, url, pc, vs, stores] = await Promise.all([
+      const [session, url, pc, vs, stores, unread, deletedPOs] = await Promise.all([
         getCurrentUser(),
         getOllamaUrl().catch(() => ''),
         getProductCount(),
         getVendors(),
         getStores(false),
+        getUnreadCount(),
+        getDeletedPOCount(),
       ]);
+      setUnreadNotifs(unread);
+      setDeletedPoCount(deletedPOs);
       if (session) {
         setUserName(session.name);
         setUserRole(session.role);
@@ -449,6 +485,59 @@ export default function SettingsScreen() {
           <Text style={styles.brandCredit}>Built with The Architect</Text>
         </Section>
 
+        {/* ── Modules ─── */}
+        <Section label="MODULES">
+          <NavRow
+            label="Stock Pool"
+            iconPath="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"
+            iconColor={colors.blue}
+            onPress={() => router.push('/stock' as never)}
+          />
+          <View style={styles.divider} />
+          <NavRow
+            label="Customer Demands"
+            iconPath="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z"
+            iconColor={colors.purple}
+            onPress={() => router.push('/demand' as never)}
+          />
+          <View style={styles.divider} />
+          <NavRow
+            label="Notifications"
+            iconPath="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"
+            iconColor={colors.teal}
+            badge={unreadNotifs > 0 ? String(unreadNotifs) : undefined}
+            badgeColor={colors.red}
+            onPress={() => router.push('/notifications' as never)}
+          />
+          <View style={styles.divider} />
+          <NavRow
+            label="Reports"
+            iconPath="M18 20V10M12 20V4M6 20v-6"
+            iconColor={colors.purple}
+            onPress={() => router.push('/reports' as never)}
+          />
+          {deletedPoCount > 0 && (
+            <>
+              <View style={styles.divider} />
+              <NavRow
+                label="Deleted POs"
+                iconPath="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"
+                iconColor={colors.red}
+                badge={String(deletedPoCount)}
+                badgeColor={colors.red}
+                onPress={() => router.push('/po/deleted' as never)}
+              />
+            </>
+          )}
+          <View style={styles.divider} />
+          <NavRow
+            label="Seasonal Planning"
+            iconPath="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
+            iconColor={colors.amber}
+            onPress={() => router.push('/seasonal' as never)}
+          />
+        </Section>
+
         {/* ── Logout ─── */}
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
           <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
@@ -576,6 +665,18 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: 'rgba(255,255,255,0.7)',
     fontFamily: 'Inter_500Medium',
+  },
+  navBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 7,
+    borderWidth: 1,
+    marginRight: 4,
+  },
+  navBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
   },
 
   // PIN flow

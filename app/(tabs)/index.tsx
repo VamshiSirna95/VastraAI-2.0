@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Dimensions,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -13,8 +14,8 @@ import Svg, { Path, Polyline } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../../constants/theme';
 import ModuleCard, { type PatternType, type MetricData } from '../../components/ModuleCard';
-import { getPOs, getGRNPendingCount, getProductCount, getVendors, getUnreadCount } from '../../db/database';
-import type { PurchaseOrder } from '../../db/types';
+import { getPOs, getGRNPendingCount, getProductCount, getVendors, getUnreadCount, getStoreStock, getDemands } from '../../db/database';
+import type { PurchaseOrder, StoreStock, CustomerDemand } from '../../db/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // 20px padding on each side + 12px gap between 2 columns
@@ -121,17 +122,26 @@ export default function HomeScreen() {
   const [sPlusCount, setSPlusCount] = useState(0);
   const [dispatchedPOs, setDispatchedPOs] = useState<PurchaseOrder[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [lowStockItem, setLowStockItem] = useState<StoreStock | null>(null);
+  const [openDemandCount, setOpenDemandCount] = useState(0);
+  const [topDemandDesc, setTopDemandDesc] = useState('');
 
   useFocusEffect(useCallback(() => {
     const loadData = async () => {
-      const [allPOs, grnPending, pCount, vendors, unread] = await Promise.all([
+      const [allPOs, grnPending, pCount, vendors, unread, allStock, openDemands] = await Promise.all([
         getPOs(),
         getGRNPendingCount(),
         getProductCount(),
         getVendors(),
         getUnreadCount(),
+        getStoreStock(),
+        getDemands(undefined, 'open'),
       ]);
       setUnreadCount(unread);
+      const lowStock = allStock.find((s) => s.total_qty > 0 && s.total_qty < 5) ?? null;
+      setLowStockItem(lowStock);
+      setOpenDemandCount(openDemands.length);
+      if (openDemands.length > 0) setTopDemandDesc(openDemands[0].description.slice(0, 40));
       const activeCount = allPOs.filter(
         (p) => p.status !== 'closed' && !p.is_deleted
       ).length;
@@ -144,12 +154,13 @@ export default function HomeScreen() {
     loadData();
   }, []));
 
-  const modules: { name: string; accent: string; title: string; patternType: PatternType; metrics: MetricData[] }[] = [
+  const modules: { name: string; accent: string; title: string; patternType: PatternType; metrics: MetricData[]; route?: string }[] = [
     {
       name: 'Enrichment',
       accent: colors.teal,
       title: 'Tag attributes',
       patternType: 'wave',
+      route: '/(tabs)/orders',
       metrics: [
         { value: String(productCount || '—'), label: 'Tagged', color: colors.teal },
         { value: '92%', label: 'AI acc.', color: colors.textPrimary },
@@ -160,6 +171,7 @@ export default function HomeScreen() {
       accent: colors.amber,
       title: 'Order builder',
       patternType: 'grid',
+      route: '/po/new',
       metrics: [
         { value: String(activePOCount || '—'), label: 'Active', color: colors.amber },
         { value: '₹3.4L', label: 'Week', color: colors.textPrimary },
@@ -170,6 +182,7 @@ export default function HomeScreen() {
       accent: colors.blue,
       title: 'GRN verify',
       patternType: 'hexdots',
+      route: '/(tabs)/orders',
       metrics: [
         { value: String(grnPendingCount || '—'), label: 'Pending', color: colors.red },
         { value: '98%', label: 'Accept', color: colors.teal },
@@ -190,6 +203,7 @@ export default function HomeScreen() {
       accent: colors.purpleLight,
       title: 'Refill engine',
       patternType: 'zigzag',
+      route: '/reports',
       metrics: [{ value: '8', label: 'Due', color: colors.purpleLight }],
     },
     {
@@ -197,6 +211,7 @@ export default function HomeScreen() {
       accent: colors.red,
       title: 'Rankings S+',
       patternType: 'rings',
+      route: '/vendors',
       metrics: [{ value: String(sPlusCount || '—'), label: 'S+ rank', color: colors.teal }],
     },
   ];
@@ -362,29 +377,58 @@ export default function HomeScreen() {
         <SectionLabel title="MODULES" />
         <View style={styles.moduleGrid}>
           {modules.map((mod) => (
-            <ModuleCard key={mod.name} {...mod} width={CARD_WIDTH} />
+            <TouchableOpacity
+              key={mod.name}
+              activeOpacity={mod.route ? 0.7 : 1}
+              onPress={() => {
+                if (mod.route) {
+                  router.push(mod.route as never);
+                } else {
+                  Alert.alert('Coming Soon', 'Coming in the next update.');
+                }
+              }}
+            >
+              <ModuleCard {...mod} width={CARD_WIDTH} />
+            </TouchableOpacity>
           ))}
         </View>
 
         {/* ── Proactive Alerts ─────────────────────────────────────── */}
         <SectionLabel title="PROACTIVE ALERTS" />
         <View style={styles.alertsList}>
-          <AlertItem dotColor={colors.red}>
-            {'Cotton kurta stock '}
-            <Text style={{ fontWeight: '700', color: colors.red }}>18 days</Text>
-            {' at Ameerpet'}
-          </AlertItem>
+          {lowStockItem ? (
+            <AlertItem dotColor={colors.red}>
+              {`${lowStockItem.design_name ?? 'Item'} stock `}
+              <Text style={{ fontWeight: '700', color: colors.red }}>low ({lowStockItem.total_qty} left)</Text>
+              {lowStockItem.store_name ? ` at ${lowStockItem.store_name}` : ''}
+            </AlertItem>
+          ) : (
+            <AlertItem dotColor={colors.red}>
+              {'Cotton kurta stock '}
+              <Text style={{ fontWeight: '700', color: colors.red }}>18 days</Text>
+              {' at Ameerpet'}
+            </AlertItem>
+          )}
           <AlertItem dotColor={colors.amber}>
             {'Vendor B: similar at '}
             <Text style={{ fontWeight: '700', color: colors.amber }}>₹380</Text>
             {' vs ₹450'}
           </AlertItem>
-          <AlertItem dotColor={colors.purpleLight}>
-            <Text style={{ fontWeight: '700', color: colors.purpleLight }}>
-              5 customers
-            </Text>
-            {' need blue Banarasi saree'}
-          </AlertItem>
+          {openDemandCount > 0 ? (
+            <AlertItem dotColor={colors.purpleLight}>
+              <Text style={{ fontWeight: '700', color: colors.purpleLight }}>
+                {openDemandCount} customer{openDemandCount !== 1 ? 's' : ''}
+              </Text>
+              {topDemandDesc ? ` need ${topDemandDesc}` : ' with open demands'}
+            </AlertItem>
+          ) : (
+            <AlertItem dotColor={colors.purpleLight}>
+              <Text style={{ fontWeight: '700', color: colors.purpleLight }}>
+                5 customers
+              </Text>
+              {' need blue Banarasi saree'}
+            </AlertItem>
+          )}
           {dispatchedPOs.length > 0
             ? dispatchedPOs.map((p) => (
                 <AlertItem key={p.po_number} dotColor={colors.teal}>
