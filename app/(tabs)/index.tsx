@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../../constants/theme';
 import ModuleCard, { type PatternType, type MetricData } from '../../components/ModuleCard';
 import GlobalSearch from '../../components/GlobalSearch';
+import * as Haptics from 'expo-haptics';
 import { getPOs, getGRNPendingCount, getProductCount, getVendors, getUnreadCount, getStoreStock, getDemands } from '../../db/database';
 import type { PurchaseOrder, StoreStock, CustomerDemand } from '../../db/types';
 
@@ -82,7 +83,10 @@ interface QuickActionProps {
 function QuickAction({ label, color, icon, onPress }: QuickActionProps) {
   return (
     <TouchableOpacity
-      onPress={onPress}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onPress?.();
+      }}
       style={[
         styles.quickAction,
         {
@@ -392,6 +396,7 @@ export default function HomeScreen() {
               key={mod.name}
               activeOpacity={mod.route ? 0.7 : 1}
               onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 if (mod.route) {
                   router.push(mod.route as never);
                 } else {

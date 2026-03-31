@@ -8,6 +8,7 @@ import {
   TextInput,
   ScrollView,
   Dimensions,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -284,6 +285,13 @@ export default function OrdersScreen() {
     setPos(posWithGRN);
   }, [search, activeType]);
 
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
+
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const typeChips = Array.from(
@@ -363,6 +371,7 @@ export default function OrdersScreen() {
             contentContainerStyle={[styles.listContent, products.length === 0 && styles.listEmpty]}
             ListEmptyComponent={<EmptyState onScan={() => router.push('/(tabs)/scan')} />}
             showsVerticalScrollIndicator={false}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.teal} colors={[colors.teal]} />}
           />
 
           {/* ── FAB ─── */}
@@ -399,6 +408,7 @@ export default function OrdersScreen() {
             )}
             contentContainerStyle={[styles.listContent, pos.length === 0 && styles.listEmpty]}
             ListEmptyComponent={<EmptyPOs onCreate={() => router.push('/po/new')} />}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.teal} colors={[colors.teal]} />}
             ListFooterComponent={
               deletedCount > 0 ? (
                 <TouchableOpacity style={styles.deletedLink} onPress={() => router.push('/po/deleted')}>

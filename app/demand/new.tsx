@@ -8,6 +8,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import * as ImagePicker from 'expo-image-picker';
 import { colors } from '../../constants/theme';
+import * as Haptics from 'expo-haptics';
 import { createDemand, getStores } from '../../db/database';
 import type { Store } from '../../db/types';
 import { GARMENT_TYPES, COLORS } from '../../db/types';
@@ -58,6 +59,7 @@ export default function NewDemandScreen() {
 
   const handleSave = async () => {
     if (!canSave) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSaving(true);
     try {
       await createDemand({

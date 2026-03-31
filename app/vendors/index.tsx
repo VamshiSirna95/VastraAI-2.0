@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, FlatList,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, FlatList, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -92,6 +92,13 @@ export default function VendorsScreen() {
     setVendors(list);
   }, [search, activeOnly]);
 
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
+
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   return (
@@ -148,6 +155,7 @@ export default function VendorsScreen() {
         )}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.teal} colors={[colors.teal]} />}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyText}>No vendors found</Text>

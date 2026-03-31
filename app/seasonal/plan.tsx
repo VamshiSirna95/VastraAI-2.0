@@ -18,33 +18,23 @@ import type { Vendor } from '../../db/types';
 
 const SEASONAL_DEFAULTS: Record<string, { colors: string; patterns: string; categories: string[] }> = {
   'Diwali Season': {
-    colors: 'Red, Gold, Maroon, Mustard',
-    patterns: 'Zari, Embroidery, Brocade, Printed',
+    colors: 'Red, Gold, Maroon, Orange',
+    patterns: 'Zari, Embroidered, Brocade, Bandhani',
     categories: ['Saree', 'Lehenga', 'Salwar Set', 'Kurta', 'Dupatta'],
   },
-  'Navratri / Durga Puja': {
-    colors: 'Chaniya (9 colors), Red, Yellow, Green',
-    patterns: 'Mirror work, Bandhani, Gharchola',
-    categories: ['Chaniya Choli', 'Salwar Set', 'Dupatta'],
-  },
   'Wedding Season': {
-    colors: 'Red, Gold, Pink, Royal Blue, Ivory',
-    patterns: 'Heavy embroidery, Zari work, Stone work, Sequins',
+    colors: 'Red, Maroon, Pink, Gold, Green',
+    patterns: 'Heavy embroidery, Zari, Sequin, Silk',
     categories: ['Lehenga', 'Saree', 'Sherwani', 'Kurta', 'Indo-Western'],
   },
   'Ramadan / Eid': {
-    colors: 'White, Ivory, Pastel Green, Sky Blue',
-    patterns: 'Chikankari, Self-embossed, Lucknowi',
+    colors: 'Green, White, Gold, Pastel',
+    patterns: 'Chikan, Lucknowi, Thread work',
     categories: ['Kurta Set', 'Anarkali', 'Salwar Set', 'Dupatta'],
   },
-  'Ugadi / Gudi Padwa': {
-    colors: 'Green, Yellow, Orange, Pink',
-    patterns: 'Printed, Kasuti, Ilkal, Ilkal Border',
-    categories: ['Silk Saree', 'Salwar Set', 'Kurta'],
-  },
   'Summer Collection': {
-    colors: 'White, Pastels, Light Blue, Mint Green',
-    patterns: 'Printed, Stripe, Checks, Dobby',
+    colors: 'White, Pastel Blue, Yellow, Mint',
+    patterns: 'Printed, Cotton, Light fabric',
     categories: ['Cotton Kurta', 'T-Shirt', 'Shirt', 'Salwar Set'],
   },
   'Winter Collection': {
@@ -53,9 +43,19 @@ const SEASONAL_DEFAULTS: Record<string, { colors: string; patterns: string; cate
     categories: ['Sweater', 'Shawl', 'Blazer', 'Kurta'],
   },
   'Sankranti / Pongal': {
-    colors: 'Yellow, Green, Orange',
-    patterns: 'Temple border, Kanjivaram, Checks',
+    colors: 'Yellow, Orange, Green',
+    patterns: 'Traditional, Pochampally, Ikat',
     categories: ['Silk Saree', 'Pavadai', 'Kurta'],
+  },
+  'Navratri / Durga Puja': {
+    colors: 'Chaniya (9 colors), Red, Yellow, Green',
+    patterns: 'Mirror work, Bandhani, Gharchola',
+    categories: ['Chaniya Choli', 'Salwar Set', 'Dupatta'],
+  },
+  'Ugadi / Gudi Padwa': {
+    colors: 'Green, Yellow, Orange, Pink',
+    patterns: 'Printed, Kasuti, Ilkal, Ilkal Border',
+    categories: ['Silk Saree', 'Salwar Set', 'Kurta'],
   },
   'Raksha Bandhan': {
     colors: 'Any festive color',

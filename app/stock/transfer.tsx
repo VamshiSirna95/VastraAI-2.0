@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
+import * as Haptics from 'expo-haptics';
 import {
   getStores, getProductStockAcrossStores, createTransfer,
 } from '../../db/database';
@@ -88,6 +89,7 @@ export default function TransferScreen() {
 
   const handleSubmit = async () => {
     if (!canSubmit || !productId || fromStoreId == null || toStoreId == null) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const sizeMap: Record<string, number> = {};
     for (const s of sizeLabels) {
       const v = parseInt(transferQtys[s] || '0', 10) || 0;
