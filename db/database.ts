@@ -51,6 +51,9 @@ async function runMigrations(): Promise<void> {
   await addCol('vendors', 'total_orders', 'INTEGER DEFAULT 0');
   await addCol('vendors', 'total_value', 'REAL DEFAULT 0');
   await addCol('vendors', 'is_active', 'INTEGER DEFAULT 1');
+  // products AI tracking columns (V13)
+  await addCol('products', 'ai_detected', 'INTEGER DEFAULT 0');
+  await addCol('products', 'ai_overrides', 'TEXT');
 }
 
 export function getDb(): SQLite.SQLiteDatabase {
@@ -107,8 +110,9 @@ export async function createProduct(product: Partial<Product>): Promise<string> 
       purchase_price, selling_price, mrp,
       primary_color, secondary_color, pattern, fabric, work_type,
       occasion, season, sleeve, neck, fit, length,
-      notes, voice_note_uri, voice_note_transcript, ai_confidence, status
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      notes, voice_note_uri, voice_note_transcript, ai_confidence,
+      ai_detected, ai_overrides, status
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       id,
       product.barcode ?? null,
@@ -133,6 +137,8 @@ export async function createProduct(product: Partial<Product>): Promise<string> 
       product.voice_note_uri ?? null,
       product.voice_note_transcript ?? null,
       product.ai_confidence ?? null,
+      product.ai_detected ?? 0,
+      product.ai_overrides ?? null,
       product.status ?? 'draft',
     ]
   );
@@ -653,6 +659,20 @@ export async function getPOItems(poId: string): Promise<POItem[]> {
      WHERE pi.po_id = ?
      ORDER BY pi.created_at ASC`,
     [poId]
+  );
+  return rows;
+}
+
+export async function getPOsByProduct(productId: string): Promise<PurchaseOrder[]> {
+  const db = getDb();
+  const rows = await db.getAllAsync<PurchaseOrder>(
+    `SELECT po.*, v.name as vendor_name
+     FROM purchase_orders po
+     JOIN po_items pi ON pi.po_id = po.id
+     LEFT JOIN vendors v ON po.vendor_id = v.id
+     WHERE pi.product_id = ? AND po.is_deleted = 0
+     ORDER BY po.created_at DESC`,
+    [productId]
   );
   return rows;
 }

@@ -176,7 +176,7 @@ function AnalyzingOverlay({ pulseAnim, detectedAttrs }: { pulseAnim: Animated.Va
       <View style={styles.analyzingCard}>
         <View style={styles.analyzingHeader}>
           <Animated.View style={[styles.analyzingDot, { opacity: pulseAnim }]} />
-          <Text style={styles.analyzingTitle}>Analyzing garment…</Text>
+          <Text style={styles.analyzingTitle}>🔍 Detecting attributes…</Text>
         </View>
         {detectedAttrs.length > 0 && (
           <View style={styles.detectedPillsRow}>

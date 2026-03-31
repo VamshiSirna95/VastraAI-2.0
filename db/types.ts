@@ -22,6 +22,8 @@ export interface Product {
   voice_note_uri?: string;
   voice_note_transcript?: string;
   ai_confidence?: number;
+  ai_detected?: number;
+  ai_overrides?: string;
   status: 'draft' | 'enriched' | 'in_po' | 'ordered' | 'received' | 'in_store';
   created_at: string;
   updated_at: string;

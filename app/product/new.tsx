@@ -12,17 +12,47 @@ export default function NewProductScreen() {
   const params = useLocalSearchParams<{
     garment_type?: string;
     primary_color?: string;
+    secondary_color?: string;
     pattern?: string;
     fabric?: string;
+    work_type?: string;
+    occasion?: string;
+    sleeve?: string;
+    neck?: string;
+    ai_confidence?: string;
+    ai_source?: string;
   }>();
+
+  const hasAiParams = !!(
+    params.garment_type || params.primary_color || params.pattern || params.fabric
+  );
+
+  const aiConfidence = params.ai_confidence ? parseFloat(params.ai_confidence) : undefined;
 
   const initial: Partial<Product> = {
     garment_type: params.garment_type,
     primary_color: params.primary_color,
+    secondary_color: params.secondary_color,
     pattern: params.pattern,
     fabric: params.fabric,
+    work_type: params.work_type,
+    occasion: params.occasion,
+    sleeve: params.sleeve,
+    neck: params.neck,
     status: 'draft',
   };
+
+  const aiFields = hasAiParams ? {
+    garment_type: params.garment_type,
+    primary_color: params.primary_color,
+    secondary_color: params.secondary_color,
+    pattern: params.pattern,
+    fabric: params.fabric,
+    work_type: params.work_type,
+    occasion: params.occasion,
+    sleeve: params.sleeve,
+    neck: params.neck,
+  } : undefined;
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -40,10 +70,35 @@ export default function NewProductScreen() {
           </Svg>
         </TouchableOpacity>
         <Text style={styles.title}>New Product</Text>
-        <View style={styles.headerSpacer} />
+        {hasAiParams && aiConfidence != null ? (
+          <View style={[
+            styles.aiSourceBadge,
+            { backgroundColor: aiConfidence >= 80 ? `${colors.teal}22` : `${colors.amber}22`,
+              borderColor: aiConfidence >= 80 ? `${colors.teal}44` : `${colors.amber}44` },
+          ]}>
+            <Text style={[
+              styles.aiSourceText,
+              { color: aiConfidence >= 80 ? colors.teal : colors.amber },
+            ]}>
+              AI {Math.round(aiConfidence)}%
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.headerSpacer} />
+        )}
       </View>
 
-      <ProductForm initial={initial} />
+      {!hasAiParams && (
+        <View style={styles.noAiBanner}>
+          <Text style={styles.noAiText}>AI detection unavailable — fill manually</Text>
+        </View>
+      )}
+
+      <ProductForm
+        initial={initial}
+        aiConfidence={aiConfidence}
+        aiFields={aiFields}
+      />
     </SafeAreaView>
   );
 }
@@ -74,7 +129,31 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_800ExtraBold',
     textAlign: 'center',
   },
-  headerSpacer: {
-    width: 40,
+  headerSpacer: { width: 40 },
+  aiSourceBadge: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    minWidth: 40,
+    alignItems: 'center',
+  },
+  aiSourceText: {
+    fontSize: 11,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
+  },
+  noAiBanner: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(239,159,39,0.06)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(239,159,39,0.12)',
+  },
+  noAiText: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.35)',
+    fontFamily: 'Inter_400Regular',
+    textAlign: 'center',
   },
 });
