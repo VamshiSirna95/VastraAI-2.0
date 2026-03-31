@@ -14,6 +14,7 @@ import Svg, { Path, Polyline } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../../constants/theme';
 import ModuleCard, { type PatternType, type MetricData } from '../../components/ModuleCard';
+import GlobalSearch from '../../components/GlobalSearch';
 import { getPOs, getGRNPendingCount, getProductCount, getVendors, getUnreadCount, getStoreStock, getDemands } from '../../db/database';
 import type { PurchaseOrder, StoreStock, CustomerDemand } from '../../db/types';
 
@@ -125,6 +126,7 @@ export default function HomeScreen() {
   const [lowStockItem, setLowStockItem] = useState<StoreStock | null>(null);
   const [openDemandCount, setOpenDemandCount] = useState(0);
   const [topDemandDesc, setTopDemandDesc] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
 
   useFocusEffect(useCallback(() => {
     const loadData = async () => {
@@ -218,6 +220,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <GlobalSearch visible={showSearch} onClose={() => setShowSearch(false)} />
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.content}
@@ -231,6 +234,14 @@ export default function HomeScreen() {
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFillObject}
           />
+          <TouchableOpacity
+            style={styles.searchIconBtn}
+            onPress={() => setShowSearch(true)}
+          >
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+              <Path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke="rgba(255,255,255,0.6)" strokeWidth={1.8} strokeLinecap="round" />
+            </Svg>
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.bellBtn}
             onPress={() => router.push('/notifications')}
@@ -471,6 +482,20 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
     overflow: 'hidden',
+  },
+  searchIconBtn: {
+    position: 'absolute',
+    top: 12,
+    right: 64,
+    width: 36,
+    height: 36,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
   },
   bellBtn: {
     position: 'absolute',

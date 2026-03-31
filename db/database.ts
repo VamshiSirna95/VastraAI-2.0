@@ -1922,3 +1922,46 @@ export async function updateSeasonalPlan(id: number, data: Partial<SeasonalPlan>
   vals.push(id);
   await getDb().runAsync(`UPDATE seasonal_plans SET ${fields.join(', ')} WHERE id = ?`, vals);
 }
+
+// ── Global Search ─────────────────────────────────────────────────────────────
+
+export interface GlobalSearchResults {
+  products: Array<{ id: string; name: string; garment_type?: string; primary_color?: string }>;
+  vendors: Array<{ id: string; name: string; city?: string; area?: string }>;
+  pos: Array<{ id: string; po_number: string; vendor_name?: string; status: string }>;
+  demands: Array<{ id: number; description: string; status: string; customer_name?: string }>;
+}
+
+export async function globalSearch(query: string): Promise<GlobalSearchResults> {
+  if (!query || query.trim().length < 2) {
+    return { products: [], vendors: [], pos: [], demands: [] };
+  }
+  const db = getDb();
+  const q = `%${query.trim()}%`;
+
+  const [products, vendors, pos, demands] = await Promise.all([
+    db.getAllAsync<{ id: string; name: string; garment_type?: string; primary_color?: string }>(
+      `SELECT id, design_name as name, garment_type, primary_color FROM products
+       WHERE (design_name LIKE ? OR garment_type LIKE ? OR primary_color LIKE ? OR barcode LIKE ?)
+         AND (is_deleted = 0 OR is_deleted IS NULL) LIMIT 3`,
+      [q, q, q, q]
+    ),
+    db.getAllAsync<{ id: string; name: string; city?: string; area?: string }>(
+      `SELECT id, name, city, area FROM vendors WHERE (name LIKE ? OR city LIKE ? OR area LIKE ?) LIMIT 3`,
+      [q, q, q]
+    ),
+    db.getAllAsync<{ id: string; po_number: string; vendor_name?: string; status: string }>(
+      `SELECT po.id, po.po_number, po.status, v.name as vendor_name
+       FROM purchase_orders po LEFT JOIN vendors v ON v.id = po.vendor_id
+       WHERE po.po_number LIKE ? AND (po.is_deleted = 0 OR po.is_deleted IS NULL) LIMIT 3`,
+      [q]
+    ),
+    db.getAllAsync<{ id: number; description: string; status: string; customer_name?: string }>(
+      `SELECT id, description, status, customer_name FROM customer_demands
+       WHERE description LIKE ? OR customer_name LIKE ? OR customer_phone LIKE ? LIMIT 3`,
+      [q, q, q]
+    ),
+  ]);
+
+  return { products, vendors, pos, demands };
+}

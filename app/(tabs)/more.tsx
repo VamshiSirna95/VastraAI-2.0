@@ -17,6 +17,7 @@ import { getProductCount, getVendors, getStores, getDb, verifyPin, updateUserPin
 import { colors } from '../../constants/theme';
 import GlassInput from '../../components/ui/GlassInput';
 import PinInput from '../../components/PinInput';
+import GlobalSearch from '../../components/GlobalSearch';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -125,6 +126,8 @@ export default function SettingsScreen() {
   const [connModel, setConnModel] = useState('');
   const [connError, setConnError] = useState('');
   const [savingUrl, setSavingUrl] = useState(false);
+
+  const [showSearch, setShowSearch] = useState(false);
 
   // Change PIN flow
   const [pinFlow, setPinFlow] = useState<PinFlow>('off');
@@ -292,10 +295,23 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
+        <GlobalSearch visible={showSearch} onClose={() => setShowSearch(false)} />
+
         <View style={styles.header}>
           <Text style={styles.screenLabel}>SETTINGS</Text>
           <Text style={styles.screenTitle}>Profile & Settings</Text>
         </View>
+
+        {/* ── Search ─── */}
+        <TouchableOpacity style={styles.searchRow} onPress={() => setShowSearch(true)}>
+          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+            <Path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke={colors.teal} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+          <Text style={styles.searchRowText}>Search products, vendors, POs…</Text>
+          <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+            <Path d="M9 18l6-6-6-6" stroke="rgba(255,255,255,0.3)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        </TouchableOpacity>
 
         {/* ── Profile Card ─── */}
         {userName ? (
@@ -566,6 +582,24 @@ const styles = StyleSheet.create({
     paddingBottom: 60,
   },
 
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: colors.teal + '33',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  searchRowText: {
+    flex: 1,
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.4)',
+    fontFamily: 'Inter_400Regular',
+  },
   header: { marginBottom: 20, marginTop: 8 },
   screenLabel: {
     fontSize: 11,
