@@ -13,7 +13,7 @@ import Svg, { Path, Polyline } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../../constants/theme';
 import ModuleCard, { type PatternType, type MetricData } from '../../components/ModuleCard';
-import { getPOs, getGRNPendingCount, getProductCount, getVendors } from '../../db/database';
+import { getPOs, getGRNPendingCount, getProductCount, getVendors, getUnreadCount } from '../../db/database';
 import type { PurchaseOrder } from '../../db/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -120,15 +120,18 @@ export default function HomeScreen() {
   const [grnPendingCount, setGrnPendingCount] = useState(0);
   const [sPlusCount, setSPlusCount] = useState(0);
   const [dispatchedPOs, setDispatchedPOs] = useState<PurchaseOrder[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useFocusEffect(useCallback(() => {
     const loadData = async () => {
-      const [allPOs, grnPending, pCount, vendors] = await Promise.all([
+      const [allPOs, grnPending, pCount, vendors, unread] = await Promise.all([
         getPOs(),
         getGRNPendingCount(),
         getProductCount(),
         getVendors(),
+        getUnreadCount(),
       ]);
+      setUnreadCount(unread);
       const activeCount = allPOs.filter(
         (p) => p.status !== 'closed' && !p.is_deleted
       ).length;
@@ -213,6 +216,25 @@ export default function HomeScreen() {
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFillObject}
           />
+          <TouchableOpacity
+            style={styles.bellBtn}
+            onPress={() => router.push('/notifications')}
+          >
+            <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+              <Path
+                d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"
+                stroke="rgba(255,255,255,0.6)"
+                strokeWidth={1.8}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </Svg>
+            {unreadCount > 0 && (
+              <View style={styles.bellBadge}>
+                <Text style={styles.bellBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
           <Text style={styles.heroEyebrow}>MERCHANDISE INTELLIGENCE</Text>
           <Text style={styles.heroTitle}>Scan. Tag.</Text>
           <Text style={[styles.heroTitle, { color: colors.teal }]}>Sell smarter.</Text>
@@ -405,6 +427,38 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
     overflow: 'hidden',
+  },
+  bellBtn: {
+    position: 'absolute',
+    top: 12,
+    right: 20,
+    width: 36,
+    height: 36,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    backgroundColor: colors.red,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 3,
+  },
+  bellBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: 'Inter_700Bold',
   },
   heroEyebrow: {
     fontSize: 11,
