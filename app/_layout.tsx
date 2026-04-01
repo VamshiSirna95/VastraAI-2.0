@@ -11,11 +11,14 @@ import {
   Inter_800ExtraBold,
   Inter_900Black,
 } from '@expo-google-fonts/inter';
-import { initDatabase } from '../db/database';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { initDatabase, getUserCount } from '../db/database';
 import { seedDemoData } from '../db/seed';
 import { isLoggedIn } from '../services/auth';
 import { generateAutoNotifications } from '../services/notifications';
 import AuroraBackground from '../components/AuroraBackground';
+import ErrorBoundary from '../components/ErrorBoundary';
+import OfflineNotice from '../components/OfflineNotice';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -33,6 +36,7 @@ export default function RootLayout() {
   });
   const [dbReady, setDbReady] = useState(false);
   const [authed, setAuthed] = useState<boolean | null>(null);
+  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
   const router = useRouter();
   const segments = useSegments();
 
@@ -41,36 +45,52 @@ export default function RootLayout() {
       .then(() => seedDemoData())
       .then(() => generateAutoNotifications().catch(() => {}))
       .then(async () => {
-        const loggedIn = await isLoggedIn();
+        const [loggedIn, userCount, onboardingFlag] = await Promise.all([
+          isLoggedIn(),
+          getUserCount(),
+          AsyncStorage.getItem('onboarding_complete'),
+        ]);
+        const noUsers = userCount === 0;
+        const notComplete = onboardingFlag !== 'true';
+        setNeedsOnboarding(noUsers && notComplete);
         setAuthed(loggedIn);
         setDbReady(true);
       })
       .catch((err) => {
         console.error('DB init failed:', err);
+        setNeedsOnboarding(false);
         setAuthed(false);
         setDbReady(true);
       });
   }, []);
 
   useEffect(() => {
-    if (!fontsLoaded || !dbReady || authed === null) return;
+    if (!fontsLoaded || !dbReady || authed === null || needsOnboarding === null) return;
     SplashScreen.hideAsync();
-    const inLogin = segments[0] === 'login';
-    if (!authed && !inLogin) {
+    const seg0 = segments[0] as string | undefined;
+    const inLogin = seg0 === 'login';
+    const inOnboarding = seg0 === 'onboarding';
+
+    if (needsOnboarding && !inOnboarding) {
+      router.replace('/onboarding' as never);
+    } else if (!needsOnboarding && !authed && !inLogin && !inOnboarding) {
       router.replace('/login');
     } else if (authed && inLogin) {
       router.replace('/(tabs)');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fontsLoaded, dbReady, authed]);
+  }, [fontsLoaded, dbReady, authed, needsOnboarding]);
 
-  if (!fontsLoaded || !dbReady || authed === null) return null;
+  if (!fontsLoaded || !dbReady || authed === null || needsOnboarding === null) return null;
 
   return (
-    <View style={styles.root}>
-      <AuroraBackground />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }} />
-      <StatusBar style="light" />
-    </View>
+    <ErrorBoundary>
+      <View style={styles.root}>
+        <AuroraBackground />
+        <OfflineNotice />
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }} />
+        <StatusBar style="light" />
+      </View>
+    </ErrorBoundary>
   );
 }
