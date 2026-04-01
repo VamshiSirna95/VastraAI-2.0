@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
-import { getVendors } from '../../db/database';
+import { getVendors, updateAllVendorRanks } from '../../db/database';
 import type { Vendor } from '../../db/types';
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -86,6 +86,7 @@ export default function VendorsScreen() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [search, setSearch] = useState('');
   const [activeOnly, setActiveOnly] = useState(true);
+  const [ranking, setRanking] = useState(false);
 
   const load = useCallback(async () => {
     const list = await getVendors(search || undefined, activeOnly);
@@ -114,6 +115,21 @@ export default function VendorsScreen() {
         <View style={styles.countPill}>
           <Text style={styles.countText}>{vendors.length}</Text>
         </View>
+        <TouchableOpacity
+          style={[styles.rankAllBtn, ranking && { opacity: 0.5 }]}
+          onPress={async () => {
+            setRanking(true);
+            try {
+              await updateAllVendorRanks();
+              await load();
+            } finally {
+              setRanking(false);
+            }
+          }}
+          disabled={ranking}
+        >
+          <Text style={styles.rankAllBtnText}>{ranking ? '…' : 'Rank All'}</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Search */}
@@ -264,6 +280,9 @@ const styles = StyleSheet.create({
   cardStats: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   phoneText: { fontSize: 12, color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_400Regular' },
   statsText: { fontSize: 12, color: colors.amber, fontFamily: 'Inter_500Medium' },
+
+  rankAllBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: 'rgba(155,114,242,0.15)', borderWidth: 1, borderColor: 'rgba(155,114,242,0.3)' },
+  rankAllBtnText: { fontSize: 12, fontWeight: '700', color: '#9B72F2', fontFamily: 'Inter_700Bold' },
 
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 80 },
   emptyText: { fontSize: 15, color: 'rgba(255,255,255,0.3)', fontFamily: 'Inter_400Regular' },

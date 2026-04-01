@@ -360,6 +360,103 @@ export async function reactivateVendor(id: string): Promise<void> {
   );
 }
 
+// Rank from score helper
+function rankFromScore(score: number): string {
+  if (score >= 95) return 'S+';
+  if (score >= 90) return 'S';
+  if (score >= 80) return 'A';
+  if (score >= 70) return 'B';
+  if (score >= 60) return 'C';
+  if (score >= 40) return 'D';
+  return 'E';
+}
+
+export async function calculateVendorRank(vendorId: string): Promise<{ score: number; rank: string; breakdown: { quality: number; delivery: number; volume: number } }> {
+  const db = getDb();
+
+  // 1. Quality score (40%): GRN accept rate
+  const qualityData = await db.getFirstAsync<{ accept_rate: number }>(
+    `SELECT COALESCE(AVG(CASE WHEN gr.total_ordered_qty > 0
+        THEN (gr.total_accepted_qty * 100.0 / gr.total_ordered_qty)
+        ELSE 100 END), 100) as accept_rate
+     FROM grn_records gr
+     JOIN purchase_orders po ON po.id = gr.po_id
+     WHERE po.vendor_id = ?`,
+    [vendorId]
+  );
+
+  // 2. Delivery score (30%): on-time rate from lorry receipts
+  const deliveryData = await db.getFirstAsync<{ total: number; on_time: number }>(
+    `SELECT COUNT(*) as total,
+       SUM(CASE WHEN lr.actual_delivery_date IS NOT NULL AND lr.expected_delivery_date IS NOT NULL
+                 AND lr.actual_delivery_date <= lr.expected_delivery_date THEN 1 ELSE 0 END) as on_time
+     FROM lorry_receipts lr
+     JOIN purchase_orders po ON po.id = lr.po_id
+     WHERE po.vendor_id = ?`,
+    [vendorId]
+  );
+
+  // 3. Volume score (15%): order count (capped at 10)
+  const volumeData = await db.getFirstAsync<{ order_count: number }>(
+    `SELECT COUNT(*) as order_count FROM purchase_orders WHERE vendor_id = ? AND is_deleted = 0`,
+    [vendorId]
+  );
+
+  const qualityScore = qualityData?.accept_rate ?? 100;
+  const deliveryRate = (deliveryData?.total ?? 0) > 0
+    ? ((deliveryData!.on_time ?? 0) / deliveryData!.total) * 100
+    : 50;
+  const volumeScore = Math.min(100, (volumeData?.order_count ?? 0) * 10);
+
+  const compositeScore = (qualityScore * 0.4) + (deliveryRate * 0.3) + (volumeScore * 0.15) + (50 * 0.15);
+  const rank = rankFromScore(compositeScore);
+
+  await db.runAsync(`UPDATE vendors SET rating = ? WHERE id = ?`, [compositeScore, vendorId]);
+
+  return { score: Math.round(compositeScore), rank, breakdown: { quality: Math.round(qualityScore), delivery: Math.round(deliveryRate), volume: Math.round(volumeScore) } };
+}
+
+export async function updateAllVendorRanks(): Promise<void> {
+  const db = getDb();
+  const vendors = await db.getAllAsync<{ id: string }>(`SELECT id FROM vendors WHERE is_active = 1 OR is_active IS NULL`);
+  for (const v of vendors) {
+    await calculateVendorRank(v.id);
+  }
+}
+
+export async function getWeekPOValue(): Promise<number> {
+  const db = getDb();
+  const row = await db.getFirstAsync<{ val: number }>(
+    `SELECT COALESCE(SUM(total_value), 0) as val FROM purchase_orders WHERE created_at >= date('now', '-7 days') AND is_deleted = 0`
+  );
+  return row?.val ?? 0;
+}
+
+export async function getGRNAcceptRate(): Promise<number> {
+  const db = getDb();
+  const row = await db.getFirstAsync<{ rate: number }>(
+    `SELECT COALESCE(AVG(CASE WHEN total_ordered_qty > 0 THEN (total_accepted_qty * 100.0 / total_ordered_qty) ELSE 100 END), 100) as rate FROM grn_records`
+  );
+  return Math.round(row?.rate ?? 100);
+}
+
+export async function getAIAccuracy(): Promise<number | null> {
+  const db = getDb();
+  const row = await db.getFirstAsync<{ avg_conf: number | null; cnt: number }>(
+    `SELECT AVG(ai_confidence) as avg_conf, COUNT(*) as cnt FROM products WHERE ai_detected = 1 AND ai_confidence > 0`
+  );
+  if (!row || !row.cnt || row.cnt === 0) return null;
+  return Math.round(row.avg_conf ?? 0);
+}
+
+export async function getLowStockCount(): Promise<number> {
+  const db = getDb();
+  const row = await db.getFirstAsync<{ cnt: number }>(
+    `SELECT COUNT(DISTINCT product_id) as cnt FROM store_stock WHERE total_qty < 10`
+  );
+  return row?.cnt ?? 0;
+}
+
 export async function updateVendorStats(vendorId: string): Promise<void> {
   await getDb().runAsync(
     `UPDATE vendors SET

@@ -8,7 +8,7 @@ import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import {
   getVendorById, updateVendor, deactivateVendor, reactivateVendor,
-  updateVendorStats, getPOs,
+  updateVendorStats, getPOs, calculateVendorRank,
 } from '../../db/database';
 import type { Vendor, PurchaseOrder } from '../../db/types';
 
@@ -89,6 +89,8 @@ export default function VendorDetailScreen() {
   const [recentPOs, setRecentPOs] = useState<PurchaseOrder[]>([]);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [scoreData, setScoreData] = useState<{ score: number; rank: string; breakdown: { quality: number; delivery: number; volume: number } } | null>(null);
+  const [recalculating, setRecalculating] = useState(false);
 
   // Editable state mirrors vendor fields
   const [form, setForm] = useState<Partial<Vendor>>({});
@@ -103,6 +105,8 @@ export default function VendorDetailScreen() {
     setForm(freshV ?? {});
     const pos = await getPOs({ vendorId: id });
     setRecentPOs(pos.slice(0, 5));
+    const sc = await calculateVendorRank(id);
+    setScoreData(sc);
   }, [id]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -220,6 +224,47 @@ export default function VendorDetailScreen() {
             <Text style={styles.statLabel}>Lead Days</Text>
           </View>
         </View>
+
+        {/* Vendor Scorecard */}
+        {scoreData && (
+          <View style={styles.section}>
+            <View style={styles.scorecardHeader}>
+              <Text style={styles.sectionLabel}>VENDOR SCORECARD</Text>
+              <TouchableOpacity
+                style={[styles.recalcBtn, recalculating && { opacity: 0.5 }]}
+                onPress={async () => {
+                  setRecalculating(true);
+                  try { const sc = await calculateVendorRank(id!); setScoreData(sc); }
+                  finally { setRecalculating(false); }
+                }}
+                disabled={recalculating}
+              >
+                <Text style={styles.recalcBtnText}>{recalculating ? '…' : 'Recalculate'}</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.scorecardMain}>
+              <View style={[styles.scoreBadgeLarge, { backgroundColor: hexToRgba(rankColor, 0.15), borderColor: hexToRgba(rankColor, 0.3) }]}>
+                <Text style={[styles.scoreBadgeRank, { color: rankColor }]}>{scoreData.rank}</Text>
+                <Text style={[styles.scoreBadgeScore, { color: rankColor }]}>{scoreData.score}/100</Text>
+              </View>
+              <View style={styles.scoreBreakdown}>
+                {[
+                  { label: 'Quality', value: scoreData.breakdown.quality, color: colors.teal },
+                  { label: 'Delivery', value: scoreData.breakdown.delivery, color: colors.amber },
+                  { label: 'Volume', value: scoreData.breakdown.volume, color: colors.blue },
+                ].map(({ label, value, color }) => (
+                  <View key={label} style={styles.scoreBarRow}>
+                    <Text style={styles.scoreBarLabel}>{label}</Text>
+                    <View style={styles.scoreBarBg}>
+                      <View style={[styles.scoreBarFill, { width: `${value}%` as `${number}%`, backgroundColor: color }]} />
+                    </View>
+                    <Text style={[styles.scoreBarPct, { color }]}>{value}%</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </View>
+        )}
 
         {/* Contact */}
         <View style={styles.section}>
@@ -483,6 +528,20 @@ const styles = StyleSheet.create({
   },
   emptySection: { fontSize: 13, color: 'rgba(255,255,255,0.25)', fontFamily: 'Inter_400Regular', fontStyle: 'italic' },
   notesText: { fontSize: 13, color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_400Regular', lineHeight: 20 },
+
+  scorecardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  recalcBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  recalcBtnText: { fontSize: 11, color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_400Regular' },
+  scorecardMain: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  scoreBadgeLarge: { width: 72, height: 72, borderRadius: 16, borderWidth: 1.5, justifyContent: 'center', alignItems: 'center' },
+  scoreBadgeRank: { fontSize: 22, fontWeight: '900', fontFamily: 'Inter_900Black' },
+  scoreBadgeScore: { fontSize: 10, fontFamily: 'Inter_400Regular', marginTop: 2 },
+  scoreBreakdown: { flex: 1, gap: 8 },
+  scoreBarRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  scoreBarLabel: { width: 54, fontSize: 11, color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_400Regular' },
+  scoreBarBg: { flex: 1, height: 5, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' },
+  scoreBarFill: { height: 5, borderRadius: 3 },
+  scoreBarPct: { width: 36, fontSize: 11, fontWeight: '700', fontFamily: 'Inter_700Bold', textAlign: 'right' },
 
   rankPicker: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 12 },
   rankChip: {
