@@ -9,6 +9,7 @@ import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import { getStoreStock, getStores } from '../../db/database';
 import type { StoreStock, Store } from '../../db/types';
+import VoiceSearchButton from '../../components/VoiceSearchButton';
 
 type FilterTab = 'Low Stock' | 'Surplus' | 'All';
 
@@ -136,6 +137,7 @@ export default function StockPoolScreen() {
             <Text style={styles.clearSearch}>✕</Text>
           </TouchableOpacity>
         )}
+        <VoiceSearchButton onResult={(text) => setSearch(text)} />
       </View>
 
       {/* Filter chips */}

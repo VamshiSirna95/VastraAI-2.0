@@ -224,6 +224,20 @@ export async function getProductCount(): Promise<number> {
   return row?.cnt ?? 0;
 }
 
+export async function getProductByBarcode(barcode: string): Promise<Product | null> {
+  const db = getDb();
+  const product = await db.getFirstAsync<Product>(
+    `SELECT p.*, v.name as vendor_name, v.rank as vendor_rank
+     FROM products p
+     LEFT JOIN vendors v ON p.vendor_id = v.id
+     WHERE p.barcode = ?`,
+    [barcode]
+  );
+  if (!product) return null;
+  product.photos = await getProductPhotos(product.id);
+  return product;
+}
+
 // ── Photos ────────────────────────────────────────────────────────────────────
 
 export async function addProductPhoto(

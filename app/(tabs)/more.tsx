@@ -7,11 +7,16 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { getOllamaUrl, setOllamaUrl, testConnection } from '../../services/ollama';
+import {
+  getGeminiApiKey, setGeminiApiKey, testGeminiConnection,
+  getAIPriorityOrder, setAIPriorityOrder,
+} from '../../services/geminiAI';
 import { getCurrentUser, logout } from '../../services/auth';
 import { getProductCount, getVendors, getStores, getDb, verifyPin, updateUserPin, getUnreadCount, getDeletedPOCount } from '../../db/database';
 import { colors } from '../../constants/theme';
@@ -127,6 +132,14 @@ export default function SettingsScreen() {
   const [connError, setConnError] = useState('');
   const [savingUrl, setSavingUrl] = useState(false);
 
+  // Gemini AI
+  const [geminiKey, setGeminiKeyState] = useState('');
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [geminiStatus, setGeminiStatus] = useState<ConnectionStatus>('idle');
+  const [geminiError, setGeminiError] = useState('');
+  const [savingGemini, setSavingGemini] = useState(false);
+  const [aiPriority, setAiPriority] = useState<'gemini_first' | 'ollama_first'>('gemini_first');
+
   const [showSearch, setShowSearch] = useState(false);
 
   // Change PIN flow
@@ -158,8 +171,52 @@ export default function SettingsScreen() {
       setProductCount(pc);
       setVendorCount(vs.length);
       setStoreCount(stores.length);
+
+      // Gemini + AI priority
+      const [gemKey, priority] = await Promise.all([
+        getGeminiApiKey(),
+        getAIPriorityOrder(),
+      ]);
+      setGeminiKeyState(gemKey ?? '');
+      setAiPriority(priority);
     })();
   }, []);
+
+  // ── Gemini AI ──────────────────────────────────────────────────────────────
+
+  const handleTestGemini = async () => {
+    if (!geminiKey.trim()) { Alert.alert('API Key Required', 'Enter your Gemini API key first.'); return; }
+    setGeminiStatus('testing');
+    setGeminiError('');
+    try {
+      const result = await testGeminiConnection(geminiKey.trim());
+      if (result.connected) {
+        setGeminiStatus('connected');
+      } else {
+        setGeminiStatus('failed');
+        setGeminiError(result.error ?? 'Connection failed');
+      }
+    } catch (e: unknown) {
+      setGeminiStatus('failed');
+      setGeminiError(e instanceof Error ? e.message : 'Unknown error');
+    }
+  };
+
+  const handleSaveGeminiKey = async () => {
+    setSavingGemini(true);
+    try {
+      await setGeminiApiKey(geminiKey.trim());
+      setGeminiStatus('idle');
+    } finally {
+      setSavingGemini(false);
+    }
+  };
+
+  const handleToggleAIPriority = async () => {
+    const next: 'gemini_first' | 'ollama_first' = aiPriority === 'gemini_first' ? 'ollama_first' : 'gemini_first';
+    await setAIPriorityOrder(next);
+    setAiPriority(next);
+  };
 
   // ── Ollama ─────────────────────────────────────────────────────────────────
 
@@ -406,65 +463,124 @@ export default function SettingsScreen() {
 
         {/* ── AI Engine ─── */}
         <Section label="AI ENGINE">
-          <GlassInput
-            label="Ollama Server URL"
-            value={ollamaUrl}
-            onChangeText={setOllamaUrlState}
-            placeholder="http://192.168.1.100:11434"
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-          />
 
-          <View style={styles.connStatusRow}>
-            <StatusDot color={connDotColor} />
-            <Text style={styles.connStatusText}>{connStatusText}</Text>
-            {connStatus === 'testing' && (
-              <ActivityIndicator size="small" color={colors.amber} style={styles.connSpinner} />
+          {/* Google Gemini card */}
+          <View style={styles.aiSubCard}>
+            <View style={styles.aiSubHeader}>
+              <StatusDot color={geminiStatus === 'connected' ? colors.teal : geminiKey ? colors.amber : 'rgba(255,255,255,0.15)'} />
+              <Text style={styles.aiSubTitle}>Google Gemini</Text>
+              <View style={[styles.aiSubBadge, { backgroundColor: geminiStatus === 'connected' ? `${colors.teal}20` : `${colors.amber}15` }]}>
+                <Text style={[styles.aiSubBadgeText, { color: geminiStatus === 'connected' ? colors.teal : colors.amber }]}>
+                  {geminiStatus === 'connected' ? 'Active' : geminiKey ? 'Key saved' : 'Not configured'}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.aiSubInfo}>Free tier: ~200 detections/day · Recommended for best accuracy.</Text>
+
+            <View style={styles.geminiKeyRow}>
+              <GlassInput
+                style={styles.geminiKeyInput}
+                label="API Key"
+                value={geminiKey}
+                onChangeText={(v) => { setGeminiKeyState(v); setGeminiStatus('idle'); }}
+                placeholder="AIza..."
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry={!showGeminiKey}
+              />
+              <TouchableOpacity style={styles.showHideBtn} onPress={() => setShowGeminiKey((v) => !v)}>
+                <Text style={styles.showHideBtnText}>{showGeminiKey ? 'Hide' : 'Show'}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {geminiStatus !== 'idle' && (
+              <View style={styles.connStatusRow}>
+                <StatusDot color={geminiStatus === 'connected' ? colors.teal : geminiStatus === 'testing' ? colors.amber : colors.red} />
+                <Text style={styles.connStatusText}>
+                  {geminiStatus === 'testing' ? 'Testing…'
+                    : geminiStatus === 'connected' ? '✓ Connected to Gemini'
+                    : `Failed — ${geminiError}`}
+                </Text>
+                {geminiStatus === 'testing' && <ActivityIndicator size="small" color={colors.amber} style={styles.connSpinner} />}
+              </View>
             )}
+
+            <View style={styles.aiButtonsRow}>
+              <TouchableOpacity style={styles.testBtn} onPress={handleTestGemini} disabled={geminiStatus === 'testing'}>
+                <Text style={styles.testBtnText}>Test</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.saveUrlBtn, savingGemini && styles.saveBtnDisabled]} onPress={handleSaveGeminiKey} disabled={savingGemini}>
+                <Text style={styles.saveUrlBtnText}>{savingGemini ? 'Saving…' : 'Save Key'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.getKeyBtn} onPress={() => Linking.openURL('https://aistudio.google.com/apikey').catch(() => {})}>
+                <Text style={styles.getKeyBtnText}>Get Free Key →</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
-          <View style={styles.aiButtonsRow}>
-            <TouchableOpacity
-              style={styles.testBtn}
-              onPress={handleTestConnection}
-              disabled={connStatus === 'testing'}
-            >
-              <Text style={styles.testBtnText}>Test Connection</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.saveUrlBtn, savingUrl && styles.saveBtnDisabled]}
-              onPress={handleSaveUrl}
-              disabled={savingUrl}
-            >
-              <Text style={styles.saveUrlBtnText}>{savingUrl ? 'Saving…' : 'Save'}</Text>
-            </TouchableOpacity>
+          <View style={styles.divider} />
+
+          {/* Ollama card */}
+          <View style={styles.aiSubCard}>
+            <View style={styles.aiSubHeader}>
+              <StatusDot color={connStatus === 'connected' ? colors.teal : 'rgba(255,255,255,0.15)'} />
+              <Text style={styles.aiSubTitle}>Ollama (Offline/Enterprise)</Text>
+            </View>
+            <Text style={styles.aiSubInfo}>For bulk processing without internet.</Text>
+
+            <GlassInput
+              label="Server URL"
+              value={ollamaUrl}
+              onChangeText={setOllamaUrlState}
+              placeholder="http://192.168.1.100:11434"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+            />
+
+            <View style={styles.connStatusRow}>
+              <StatusDot color={connDotColor} />
+              <Text style={styles.connStatusText}>{connStatusText}</Text>
+              {connStatus === 'testing' && <ActivityIndicator size="small" color={colors.amber} style={styles.connSpinner} />}
+            </View>
+
+            <View style={styles.aiButtonsRow}>
+              <TouchableOpacity style={styles.testBtn} onPress={handleTestConnection} disabled={connStatus === 'testing'}>
+                <Text style={styles.testBtnText}>Test Connection</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.saveUrlBtn, savingUrl && styles.saveBtnDisabled]} onPress={handleSaveUrl} disabled={savingUrl}>
+                <Text style={styles.saveUrlBtnText}>{savingUrl ? 'Saving…' : 'Save'}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </Section>
 
         {/* ── Detection Cascade ─── */}
         <Section label="DETECTION CASCADE">
           <Text style={styles.cascadeInfo}>
-            VASTRA tries Ollama first, falls back to on-device detection, then manual entry.
+            {aiPriority === 'gemini_first'
+              ? 'VASTRA tries Gemini first, then Ollama, then manual entry.'
+              : 'VASTRA tries Ollama first, then Gemini, then manual entry.'}
           </Text>
-          <CascadeRow
-            dotColor={connStatus === 'connected' ? colors.teal : 'rgba(255,255,255,0.2)'}
-            label="Ollama Server"
-            badge={connStatus === 'connected' ? 'Connected' : 'Offline'}
-            badgeColor={connStatus === 'connected' ? colors.teal : 'rgba(255,255,255,0.3)'}
-          />
-          <CascadeRow
-            dotColor={colors.blue}
-            label="On-Device AI"
-            badge="Active"
-            badgeColor={colors.blue}
-          />
-          <CascadeRow
-            dotColor={colors.amber}
-            label="Manual Entry"
-            badge="Always available"
-            badgeColor={colors.amber}
-          />
+          {aiPriority === 'gemini_first' ? (
+            <>
+              <CascadeRow dotColor={geminiStatus === 'connected' ? colors.teal : geminiKey ? colors.amber : 'rgba(255,255,255,0.2)'} label="1. Google Gemini" badge={geminiStatus === 'connected' ? 'Connected' : geminiKey ? 'Key saved' : 'Not set'} badgeColor={geminiStatus === 'connected' ? colors.teal : geminiKey ? colors.amber : 'rgba(255,255,255,0.3)'} />
+              <CascadeRow dotColor={connStatus === 'connected' ? colors.teal : 'rgba(255,255,255,0.2)'} label="2. Ollama Server" badge={connStatus === 'connected' ? 'Connected' : 'Offline'} badgeColor={connStatus === 'connected' ? colors.teal : 'rgba(255,255,255,0.3)'} />
+            </>
+          ) : (
+            <>
+              <CascadeRow dotColor={connStatus === 'connected' ? colors.teal : 'rgba(255,255,255,0.2)'} label="1. Ollama Server" badge={connStatus === 'connected' ? 'Connected' : 'Offline'} badgeColor={connStatus === 'connected' ? colors.teal : 'rgba(255,255,255,0.3)'} />
+              <CascadeRow dotColor={geminiStatus === 'connected' ? colors.teal : geminiKey ? colors.amber : 'rgba(255,255,255,0.2)'} label="2. Google Gemini" badge={geminiStatus === 'connected' ? 'Connected' : geminiKey ? 'Key saved' : 'Not set'} badgeColor={geminiStatus === 'connected' ? colors.teal : geminiKey ? colors.amber : 'rgba(255,255,255,0.3)'} />
+            </>
+          )}
+          <CascadeRow dotColor={colors.blue} label="On-Device AI" badge="Active" badgeColor={colors.blue} />
+          <CascadeRow dotColor={colors.amber} label="Manual Entry" badge="Always available" badgeColor={colors.amber} />
+
+          <TouchableOpacity style={styles.priorityToggleBtn} onPress={handleToggleAIPriority}>
+            <Text style={styles.priorityToggleText}>
+              Switch to {aiPriority === 'gemini_first' ? 'Ollama-first' : 'Gemini-first'} mode
+            </Text>
+          </TouchableOpacity>
         </Section>
 
         {/* ── Data Management ─── */}
@@ -930,6 +1046,102 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: 'uppercase',
     marginTop: 4,
+  },
+
+  // AI sub-cards
+  aiSubCard: {
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 4,
+  },
+  aiSubHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  aiSubTitle: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: 'Inter_700Bold',
+  },
+  aiSubBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  aiSubBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    fontFamily: 'Inter_700Bold',
+  },
+  aiSubInfo: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.35)',
+    fontFamily: 'Inter_400Regular',
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  geminiKeyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    marginBottom: 10,
+  },
+  geminiKeyInput: {
+    flex: 1,
+  },
+  showHideBtn: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  showHideBtnText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
+    fontFamily: 'Inter_500Medium',
+  },
+  getKeyBtn: {
+    backgroundColor: 'rgba(93,202,165,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(93,202,165,0.2)',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  getKeyBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.teal,
+    fontFamily: 'Inter_700Bold',
+  },
+  priorityToggleBtn: {
+    marginTop: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  priorityToggleText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.5)',
+    fontFamily: 'Inter_700Bold',
   },
 
   // Logout

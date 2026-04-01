@@ -16,7 +16,7 @@ import * as FileSystem from 'expo-file-system';
 import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import { hexToRgba } from '../../components/ModuleCard';
-import { createProduct, addProductPhoto } from '../../db/database';
+import { createProduct, addProductPhoto, getProductByBarcode } from '../../db/database';
 import { detectAttributes, type AIDetectionResult } from '../../services/ai';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -270,6 +270,11 @@ export default function ScanScreen() {
   const isBatchMode = activeMode === 'Batch';
   const [batchToastVisible, setBatchToastVisible] = useState(false);
 
+  // Barcode scan state
+  const [scannedBarcode, setScannedBarcode] = useState<string | null>(null);
+  const [barcodeChecking, setBarcodeChecking] = useState(false);
+  const barcodeCooldownRef = useRef(false);
+
   const cameraRef = useRef<CameraViewType>(null);
   const pulseAnim = useRef(new Animated.Value(0.3)).current;
   const analyzePulse = useRef(new Animated.Value(0.3)).current;
@@ -355,6 +360,38 @@ export default function ScanScreen() {
 
   const handleRetake = () => {
     setReviewPhoto(null);
+  };
+
+  const handleBarcodeScanned = async ({ data }: { data: string }) => {
+    if (barcodeCooldownRef.current || scannedBarcode || reviewPhoto || analyzing) return;
+    barcodeCooldownRef.current = true;
+    setScannedBarcode(data);
+    setBarcodeChecking(true);
+    try {
+      const product = await getProductByBarcode(data);
+      if (product) {
+        setScannedBarcode(null);
+        barcodeCooldownRef.current = false;
+        router.push(`/product/${product.id}` as `/product/${string}`);
+        return;
+      }
+    } finally {
+      setBarcodeChecking(false);
+    }
+    // No product found — keep overlay open for user to create new
+    setTimeout(() => { barcodeCooldownRef.current = false; }, 3000);
+  };
+
+  const dismissBarcode = () => {
+    setScannedBarcode(null);
+    barcodeCooldownRef.current = false;
+  };
+
+  const createNewFromBarcode = () => {
+    const code = scannedBarcode;
+    setScannedBarcode(null);
+    barcodeCooldownRef.current = false;
+    router.push({ pathname: '/product/new', params: { barcode: code ?? '' } });
   };
 
   const ensureDir = async () => {
@@ -477,6 +514,10 @@ export default function ScanScreen() {
           style={StyleSheet.absoluteFill}
           facing={facing}
           flash={flashMode}
+          onBarcodeScanned={activeMode === 'Tag' ? handleBarcodeScanned : undefined}
+          barcodeScannerSettings={activeMode === 'Tag' ? {
+            barcodeTypes: ['ean13', 'ean8', 'code128', 'code39', 'qr', 'upc_a', 'upc_e'],
+          } : undefined}
         />
       ) : (
         <>
@@ -617,6 +658,28 @@ export default function ScanScreen() {
 
       {/* Batch toast */}
       <BatchToast count={batchProducts.length} visible={batchToastVisible} />
+
+      {/* Barcode overlay */}
+      {scannedBarcode && (
+        <View style={styles.barcodeOverlay}>
+          <View style={styles.barcodeCard}>
+            <Text style={styles.barcodeBadge}>BARCODE DETECTED</Text>
+            <Text style={styles.barcodeValue} numberOfLines={1}>{scannedBarcode}</Text>
+            {barcodeChecking ? (
+              <Text style={styles.barcodeChecking}>Looking up product…</Text>
+            ) : (
+              <View style={styles.barcodeActions}>
+                <TouchableOpacity style={styles.barcodeCreateBtn} onPress={createNewFromBarcode}>
+                  <Text style={styles.barcodeCreateBtnText}>New Product with This Barcode</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.barcodeDismissBtn} onPress={dismissBarcode}>
+                  <Text style={styles.barcodeDismissBtnText}>Dismiss</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
 
       {/* Permission overlay */}
       {permission && !permission.granted && (
@@ -815,4 +878,67 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: hexToRgba(colors.teal, 0.35), borderRadius: 10,
   },
   permBtnText: { fontSize: 13, fontWeight: '700', color: colors.teal, fontFamily: 'Inter_700Bold' },
+
+  // Barcode overlay
+  barcodeOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    paddingBottom: 40,
+    paddingHorizontal: 20,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  barcodeCard: {
+    backgroundColor: '#111111',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 18,
+    padding: 20,
+    gap: 10,
+  },
+  barcodeBadge: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 2,
+    color: colors.teal,
+    fontFamily: 'Inter_700Bold',
+    textTransform: 'uppercase',
+  },
+  barcodeValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    fontFamily: 'Inter_800ExtraBold',
+  },
+  barcodeChecking: {
+    fontSize: 13,
+    color: colors.amber,
+    fontFamily: 'Inter_400Regular',
+    fontStyle: 'italic',
+  },
+  barcodeActions: { gap: 8 },
+  barcodeCreateBtn: {
+    backgroundColor: colors.teal,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  barcodeCreateBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#000000',
+    fontFamily: 'Inter_700Bold',
+  },
+  barcodeDismissBtn: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  barcodeDismissBtnText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.4)',
+    fontFamily: 'Inter_700Bold',
+  },
 });

@@ -10,8 +10,10 @@ import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import {
   getGRN, getGRNByPO, getGRNsByPO, createGRN, updateGRNItem, finalizeGRN, addGRNPhoto, getPOById,
-  getVoiceNotes, createVoiceNote, deleteVoiceNote,
+  getVoiceNotes, createVoiceNote, deleteVoiceNote, getProductPhotos,
 } from '../../db/database';
+import { compareImagesWithGemini, getGeminiApiKey } from '../../services/geminiAI';
+import type { GeminiComparisonResult } from '../../services/geminiAI';
 import type { GRNRecord, GRNItem, GRNSizeData, PurchaseOrder, VoiceNote } from '../../db/types';
 import VoiceNoteRecorder from '../../components/VoiceNoteRecorder';
 import VoiceNotePlayer from '../../components/VoiceNotePlayer';
@@ -85,6 +87,7 @@ export default function GRNScreen() {
   const [poVoiceNotes, setPoVoiceNotes] = useState<VoiceNote[]>([]);
   const [showPONotes, setShowPONotes] = useState(false);
   const [showPORecorder, setShowPORecorder] = useState(false);
+  const [compStates, setCompStates] = useState<Record<string, { loading: boolean; result: GeminiComparisonResult | null }>>({});
 
   const load = useCallback(async () => {
     if (!poId) return;
@@ -194,6 +197,22 @@ export default function GRNScreen() {
     });
   };
 
+  const runGeminiComparison = async (item: GRNItem, receivedUri: string) => {
+    const [apiKey, productPhotos] = await Promise.all([
+      getGeminiApiKey(),
+      getProductPhotos(item.product_id),
+    ]);
+    if (!apiKey || productPhotos.length === 0) return;
+    const orderedUri = productPhotos[0].uri;
+    setCompStates((prev) => ({ ...prev, [item.id]: { loading: true, result: null } }));
+    try {
+      const result = await compareImagesWithGemini(orderedUri, receivedUri, apiKey);
+      setCompStates((prev) => ({ ...prev, [item.id]: { loading: false, result } }));
+    } catch {
+      setCompStates((prev) => ({ ...prev, [item.id]: { loading: false, result: null } }));
+    }
+  };
+
   const handleTakePhoto = async (item: GRNItem) => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
@@ -211,6 +230,7 @@ export default function GRNScreen() {
           if (!result.canceled && result.assets[0]) {
             await addGRNPhoto(item.id, result.assets[0].uri, 'received');
             await load();
+            void runGeminiComparison(item, result.assets[0].uri);
           }
         },
       },
@@ -221,6 +241,7 @@ export default function GRNScreen() {
           if (!result.canceled && result.assets[0]) {
             await addGRNPhoto(item.id, result.assets[0].uri, 'received');
             await load();
+            void runGeminiComparison(item, result.assets[0].uri);
           }
         },
       },
@@ -437,6 +458,7 @@ export default function GRNScreen() {
           const hasSizeData = item.size_data && Object.keys(item.size_data).length > 0;
           const latestPhoto = item.photos?.[item.photos.length - 1];
           const hasPhoto = (item.photos ?? []).length > 0;
+          const comp = compStates[item.id];
 
           return (
             <View key={item.id} style={styles.itemCard}>
@@ -600,6 +622,46 @@ export default function GRNScreen() {
                   </TouchableOpacity>
                 )}
               </View>
+
+              {/* AI QC Comparison */}
+              {comp && (
+                <View style={styles.aiQcCard}>
+                  {comp.loading ? (
+                    <Text style={styles.aiQcLoading}>AI comparing with ordered photo…</Text>
+                  ) : comp.result ? (
+                    <>
+                      <Text style={styles.aiQcTitle}>AI Quality Check</Text>
+                      <View style={styles.aiQcRow}>
+                        <View style={styles.aiQcStat}>
+                          <Text style={[styles.aiQcScore, { color: comp.result.overall_match >= 80 ? colors.teal : comp.result.overall_match >= 60 ? colors.amber : colors.red }]}>
+                            {comp.result.overall_match}%
+                          </Text>
+                          <Text style={styles.aiQcLabel}>Overall</Text>
+                        </View>
+                        <View style={styles.aiQcStat}>
+                          <Text style={[styles.aiQcScore, { color: comp.result.color_match >= 80 ? colors.teal : colors.amber }]}>{comp.result.color_match}%</Text>
+                          <Text style={styles.aiQcLabel}>Color</Text>
+                        </View>
+                        <View style={styles.aiQcStat}>
+                          <Text style={[styles.aiQcScore, { color: comp.result.pattern_match >= 80 ? colors.teal : colors.amber }]}>{comp.result.pattern_match}%</Text>
+                          <Text style={styles.aiQcLabel}>Pattern</Text>
+                        </View>
+                        <View style={styles.aiQcStat}>
+                          <Text style={[styles.aiQcScore, { color: comp.result.work_match >= 80 ? colors.teal : colors.amber }]}>{comp.result.work_match}%</Text>
+                          <Text style={styles.aiQcLabel}>Work</Text>
+                        </View>
+                      </View>
+                      {comp.result.discrepancies.length > 0 && comp.result.discrepancies[0] !== 'Could not analyze' && (
+                        <View style={styles.aiQcDiscrepancies}>
+                          {comp.result.discrepancies.map((d, i) => (
+                            <Text key={i} style={styles.aiQcDiscText}>• {d}</Text>
+                          ))}
+                        </View>
+                      )}
+                    </>
+                  ) : null}
+                </View>
+              )}
 
               {/* Item notes */}
               {!isFinalized && (
@@ -1014,4 +1076,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   finalizedText: { fontSize: 14, fontWeight: '700', color: colors.teal, fontFamily: 'Inter_700Bold' },
+
+  // AI QC comparison
+  aiQcCard: {
+    marginTop: 8,
+    backgroundColor: 'rgba(93,202,165,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(93,202,165,0.15)',
+    borderRadius: 10,
+    padding: 12,
+  },
+  aiQcLoading: {
+    fontSize: 12,
+    color: colors.amber,
+    fontFamily: 'Inter_400Regular',
+    fontStyle: 'italic',
+  },
+  aiQcTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    color: 'rgba(255,255,255,0.3)',
+    fontFamily: 'Inter_700Bold',
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  aiQcRow: { flexDirection: 'row', gap: 14, marginBottom: 6 },
+  aiQcStat: { alignItems: 'center', gap: 2 },
+  aiQcScore: { fontSize: 16, fontWeight: '800', fontFamily: 'Inter_800ExtraBold' },
+  aiQcLabel: { fontSize: 10, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular' },
+  aiQcDiscrepancies: { marginTop: 4, gap: 2 },
+  aiQcDiscText: { fontSize: 11, color: colors.amber, fontFamily: 'Inter_400Regular' },
 });

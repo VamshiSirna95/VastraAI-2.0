@@ -8,6 +8,7 @@ import Svg, { Path } from 'react-native-svg';
 import { colors } from '../constants/theme';
 import { globalSearch } from '../db/database';
 import type { GlobalSearchResults } from '../db/database';
+import VoiceSearchButton from './VoiceSearchButton';
 
 interface Props {
   visible: boolean;
@@ -103,6 +104,7 @@ export default function GlobalSearch({ visible, onClose }: Props) {
               <Text style={styles.clearBtn}>✕</Text>
             </TouchableOpacity>
           ) : null}
+          <VoiceSearchButton onResult={(text) => { handleChange(text); }} />
           <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
             <Text style={styles.closeBtnText}>Cancel</Text>
           </TouchableOpacity>

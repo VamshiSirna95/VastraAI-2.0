@@ -22,6 +22,7 @@ export default function NewProductScreen() {
     neck?: string;
     ai_confidence?: string;
     ai_source?: string;
+    barcode?: string;
   }>();
 
   const hasAiParams = !!(
@@ -40,6 +41,7 @@ export default function NewProductScreen() {
     occasion: params.occasion,
     sleeve: params.sleeve,
     neck: params.neck,
+    barcode: params.barcode || undefined,
     status: 'draft',
   };
 
