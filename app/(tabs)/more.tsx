@@ -552,6 +552,27 @@ export default function SettingsScreen() {
             iconColor={colors.amber}
             onPress={() => router.push('/seasonal' as never)}
           />
+          <View style={styles.divider} />
+          <NavRow
+            label="Dispatch Notes"
+            iconPath="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0zM12 7v5l3 3"
+            iconColor={colors.teal}
+            onPress={() => router.push('/stock/dispatch' as never)}
+          />
+          <View style={styles.divider} />
+          <NavRow
+            label="Price Watch"
+            iconPath="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"
+            iconColor={colors.amber}
+            onPress={() => router.push('/competition' as never)}
+          />
+          <View style={styles.divider} />
+          <NavRow
+            label="Similar Products"
+            iconPath="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            iconColor={colors.blue}
+            onPress={() => router.push('/similarity' as never)}
+          />
         </Section>
 
         {/* ── Logout ─── */}

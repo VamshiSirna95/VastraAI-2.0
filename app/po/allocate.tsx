@@ -13,6 +13,7 @@ import {
   getStoreStock, updateStoreStock,
 } from '../../db/database';
 import type { GRNRecord, GRNItem, Store } from '../../db/types';
+import { generateDispatchNotes } from '../../services/dispatchNote';
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -178,8 +179,25 @@ export default function AllocateScreen() {
         await updateStoreStock(storeId, productId, mergedSizes);
       }
 
-      Alert.alert('Saved', 'Stock allocations saved successfully.');
-      router.back();
+      // Generate dispatch notes for each store
+      let dispatchCount = 0;
+      try {
+        dispatchCount = await generateDispatchNotes(grnId!);
+      } catch {
+        // Don't block on dispatch note failure
+      }
+
+      Alert.alert(
+        'Saved',
+        `Allocations saved${dispatchCount > 0 ? ` — ${dispatchCount} dispatch note${dispatchCount !== 1 ? 's' : ''} generated` : ''}.`,
+        [
+          { text: 'OK', onPress: () => router.back() },
+          ...(dispatchCount > 0 ? [{
+            text: 'View Dispatch Notes',
+            onPress: () => router.push('/stock/dispatch' as never),
+          }] : []),
+        ]
+      );
     } catch (e) {
       Alert.alert('Error', String(e));
     } finally {
