@@ -497,7 +497,8 @@ export default function SettingsScreen() {
           </View>
           <Text style={styles.brandSub}>Merchandise Intelligence Platform</Text>
           <Text style={styles.brandOrg}>K.M. Fashions / MGBT</Text>
-          <InfoRow label="Version" value="v2.0.0" />
+          <InfoRow label="Version" value="v1.0.0-beta" accent={colors.teal} />
+          <InfoRow label="Build" value="2026-04-01" />
           <Text style={styles.brandCredit}>Built with The Architect</Text>
         </Section>
 
@@ -572,6 +573,13 @@ export default function SettingsScreen() {
             iconPath="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
             iconColor={colors.blue}
             onPress={() => router.push('/similarity' as never)}
+          />
+          <View style={styles.divider} />
+          <NavRow
+            label="Export Center"
+            iconPath="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+            iconColor={colors.amber}
+            onPress={() => router.push('/exports' as never)}
           />
         </Section>
 
