@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { CREATE_TABLES } from './schema';
-import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt, GRNSizeData, Store, StockAllocation, User, AnalyticsData, VoiceNote, StoreStock, StockTransfer, CustomerDemand, AppNotification, SeasonalPlan, SeasonalPlanItem } from './types';
+import type { Product, ProductPhoto, Vendor, CustomAttribute, PurchaseOrder, POItem, PurchaseTrip, DeliveryConfig, GRNRecord, GRNItem, GRNPhoto, LorryReceipt, GRNSizeData, Store, StockAllocation, User, AnalyticsData, VoiceNote, StoreStock, StockTransfer, CustomerDemand, AppNotification, SeasonalPlan, SeasonalPlanItem, CompetitorPrice, CompetitionSummaryItem, DispatchNote } from './types';
 import { SIZE_TEMPLATES } from './types';
 
 // ── DB singleton ──────────────────────────────────────────────────────────────
@@ -54,6 +54,7 @@ async function runMigrations(): Promise<void> {
   // products AI tracking columns (V13)
   await addCol('products', 'ai_detected', 'INTEGER DEFAULT 0');
   await addCol('products', 'ai_overrides', 'TEXT');
+  // V17: competition_prices and dispatch_notes are created via CREATE TABLE IF NOT EXISTS above
 }
 
 export function getDb(): SQLite.SQLiteDatabase {
@@ -2067,4 +2068,177 @@ export async function globalSearch(query: string): Promise<GlobalSearchResults> 
   ]);
 
   return { products, vendors, pos, demands };
+}
+
+// ── Competition Prices ────────────────────────────────────────────────────────
+
+export async function addCompetitorPrice(data: Omit<CompetitorPrice, 'id' | 'captured_at' | 'product_name' | 'store_name'>): Promise<number> {
+  const result = await getDb().runAsync(
+    `INSERT INTO competition_prices (product_id, competitor_name, competitor_price, our_mrp, our_selling_price, our_offer_percent, photo_uri, notes, store_id)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+    [
+      data.product_id ?? null,
+      data.competitor_name,
+      data.competitor_price,
+      data.our_mrp ?? null,
+      data.our_selling_price ?? null,
+      data.our_offer_percent ?? 0,
+      data.photo_uri ?? null,
+      data.notes ?? null,
+      data.store_id ?? null,
+    ]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function getCompetitorPrices(productId?: string): Promise<CompetitorPrice[]> {
+  const db = getDb();
+  if (productId) {
+    return db.getAllAsync<CompetitorPrice>(
+      `SELECT cp.*, p.design_name as product_name, s.name as store_name
+       FROM competition_prices cp
+       LEFT JOIN products p ON p.id = cp.product_id
+       LEFT JOIN stores s ON s.id = cp.store_id
+       WHERE cp.product_id = ?
+       ORDER BY cp.captured_at DESC`,
+      [productId]
+    );
+  }
+  return db.getAllAsync<CompetitorPrice>(
+    `SELECT cp.*, p.design_name as product_name, s.name as store_name
+     FROM competition_prices cp
+     LEFT JOIN products p ON p.id = cp.product_id
+     LEFT JOIN stores s ON s.id = cp.store_id
+     ORDER BY cp.captured_at DESC`
+  );
+}
+
+export async function getCompetitionSummary(): Promise<CompetitionSummaryItem[]> {
+  const db = getDb();
+  const rows = await db.getAllAsync<{
+    product_id: string;
+    product_name: string;
+    our_selling_price: number;
+    our_offer_percent: number;
+    competitor_price: number;
+    competitor_name: string;
+  }>(
+    `SELECT cp.product_id, p.design_name as product_name,
+       cp.our_selling_price, cp.our_offer_percent,
+       cp.competitor_price, cp.competitor_name
+     FROM competition_prices cp
+     LEFT JOIN products p ON p.id = cp.product_id
+     ORDER BY cp.captured_at DESC`
+  );
+
+  return rows.map((r) => {
+    const ourEff = (r.our_selling_price ?? 0) * (1 - (r.our_offer_percent ?? 0) / 100);
+    const compEff = r.competitor_price;
+    const diff = ourEff - compEff;
+    const pctDiff = compEff > 0 ? (diff / compEff) * 100 : 0;
+    let recommendation: string;
+    if (diff < 0) {
+      recommendation = `✅ You're competitive (₹${Math.abs(Math.round(diff))} cheaper)`;
+    } else if (pctDiff <= 5) {
+      recommendation = '⚠️ Close match — monitor';
+    } else {
+      const suggestion = Math.round(compEff - 1);
+      recommendation = `🔴 Consider adjusting to ₹${suggestion}`;
+    }
+    return {
+      product_id: r.product_id,
+      product_name: r.product_name ?? 'Unknown',
+      our_price: Math.round(ourEff),
+      competitor_price: Math.round(compEff),
+      competitor_name: r.competitor_name,
+      price_diff: Math.round(diff),
+      recommendation,
+    };
+  });
+}
+
+export async function deleteCompetitorPrice(id: number): Promise<void> {
+  await getDb().runAsync('DELETE FROM competition_prices WHERE id = ?', [id]);
+}
+
+// ── Dispatch Notes ────────────────────────────────────────────────────────────
+
+export async function createDispatchNote(data: Omit<DispatchNote, 'id' | 'created_at' | 'store_name' | 'grn_number'>): Promise<number> {
+  const result = await getDb().runAsync(
+    `INSERT INTO dispatch_notes (grn_id, store_id, dispatch_number, items_json, total_items, total_qty, status)
+     VALUES (?,?,?,?,?,?,?)`,
+    [
+      data.grn_id ?? null,
+      data.store_id,
+      data.dispatch_number,
+      data.items_json,
+      data.total_items ?? null,
+      data.total_qty ?? null,
+      data.status ?? 'generated',
+    ]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function getDispatchNotes(grnId?: string): Promise<DispatchNote[]> {
+  const db = getDb();
+  if (grnId) {
+    return db.getAllAsync<DispatchNote>(
+      `SELECT dn.*, s.name as store_name, g.grn_number
+       FROM dispatch_notes dn
+       LEFT JOIN stores s ON s.id = dn.store_id
+       LEFT JOIN grn_records g ON g.id = dn.grn_id
+       WHERE dn.grn_id = ?
+       ORDER BY dn.created_at DESC`,
+      [grnId]
+    );
+  }
+  return db.getAllAsync<DispatchNote>(
+    `SELECT dn.*, s.name as store_name, g.grn_number
+     FROM dispatch_notes dn
+     LEFT JOIN stores s ON s.id = dn.store_id
+     LEFT JOIN grn_records g ON g.id = dn.grn_id
+     ORDER BY dn.created_at DESC`
+  );
+}
+
+export async function getDispatchNote(id: number): Promise<DispatchNote | null> {
+  return getDb().getFirstAsync<DispatchNote>(
+    `SELECT dn.*, s.name as store_name, g.grn_number
+     FROM dispatch_notes dn
+     LEFT JOIN stores s ON s.id = dn.store_id
+     LEFT JOIN grn_records g ON g.id = dn.grn_id
+     WHERE dn.id = ?`,
+    [id]
+  );
+}
+
+export async function updateDispatchNoteStatus(
+  id: number,
+  status: DispatchNote['status'],
+  receivedBy?: string
+): Promise<void> {
+  const db = getDb();
+  if (status === 'dispatched') {
+    await db.runAsync(
+      `UPDATE dispatch_notes SET status = ?, dispatched_at = datetime('now') WHERE id = ?`,
+      [status, id]
+    );
+  } else if (status === 'received') {
+    await db.runAsync(
+      `UPDATE dispatch_notes SET status = ?, received_at = datetime('now'), received_by = ? WHERE id = ?`,
+      [status, receivedBy ?? null, id]
+    );
+  } else {
+    await db.runAsync(`UPDATE dispatch_notes SET status = ? WHERE id = ?`, [status, id]);
+  }
+}
+
+export async function getNextDispatchSeq(yyyymm: string): Promise<number> {
+  const db = getDb();
+  const row = await db.getFirstAsync<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM dispatch_notes WHERE dispatch_number LIKE ?`,
+    [`KMF/DN/${yyyymm}/%`]
+  );
+  return (row?.cnt ?? 0) + 1;
 }

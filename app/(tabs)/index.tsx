@@ -16,8 +16,8 @@ import { colors } from '../../constants/theme';
 import ModuleCard, { type PatternType, type MetricData } from '../../components/ModuleCard';
 import GlobalSearch from '../../components/GlobalSearch';
 import * as Haptics from 'expo-haptics';
-import { getPOs, getGRNPendingCount, getProductCount, getVendors, getUnreadCount, getStoreStock, getDemands, getWeekPOValue, getGRNAcceptRate, getAIAccuracy, getLowStockCount } from '../../db/database';
-import type { PurchaseOrder, StoreStock, CustomerDemand } from '../../db/types';
+import { getPOs, getGRNPendingCount, getProductCount, getVendors, getUnreadCount, getStoreStock, getDemands, getWeekPOValue, getGRNAcceptRate, getAIAccuracy, getLowStockCount, getCompetitionSummary } from '../../db/database';
+import type { PurchaseOrder, StoreStock, CustomerDemand, CompetitionSummaryItem } from '../../db/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // 20px padding on each side + 12px gap between 2 columns
@@ -135,6 +135,7 @@ export default function HomeScreen() {
   const [aiAccuracy, setAiAccuracy] = useState<number | null>(null);
   const [lowStockCount, setLowStockCount] = useState(0);
   const [showSearch, setShowSearch] = useState(false);
+  const [topCompetitionAlert, setTopCompetitionAlert] = useState<CompetitionSummaryItem | null>(null);
 
   useFocusEffect(useCallback(() => {
     const loadData = async () => {
@@ -170,6 +171,13 @@ export default function HomeScreen() {
       setGrnAcceptRate(acceptRate);
       setAiAccuracy(aiAcc);
       setLowStockCount(lowStockNum);
+      // Competition alerts — find biggest price disadvantage (>10% more expensive)
+      getCompetitionSummary().then((summary) => {
+        const worst = summary
+          .filter((s) => s.price_diff > 0 && s.competitor_price > 0 && (s.price_diff / s.competitor_price) * 100 > 10)
+          .sort((a, b) => b.price_diff - a.price_diff)[0] ?? null;
+        setTopCompetitionAlert(worst);
+      }).catch(() => {});
     };
     loadData();
   }, []));
@@ -439,11 +447,19 @@ export default function HomeScreen() {
               {' at Ameerpet'}
             </AlertItem>
           )}
-          <AlertItem dotColor={colors.amber}>
-            {'Vendor B: similar at '}
-            <Text style={{ fontWeight: '700', color: colors.amber }}>₹380</Text>
-            {' vs ₹450'}
-          </AlertItem>
+          {topCompetitionAlert ? (
+            <AlertItem dotColor={colors.amber}>
+              {`${topCompetitionAlert.competitor_name}: `}
+              <Text style={{ fontWeight: '700', color: colors.amber }}>{topCompetitionAlert.product_name}</Text>
+              {` at ₹${topCompetitionAlert.competitor_price} — you're ₹${topCompetitionAlert.price_diff} higher`}
+            </AlertItem>
+          ) : (
+            <AlertItem dotColor={colors.amber}>
+              {'Vendor B: similar at '}
+              <Text style={{ fontWeight: '700', color: colors.amber }}>₹380</Text>
+              {' vs ₹450'}
+            </AlertItem>
+          )}
           {openDemandCount > 0 ? (
             <AlertItem dotColor={colors.purpleLight}>
               <Text style={{ fontWeight: '700', color: colors.purpleLight }}>
