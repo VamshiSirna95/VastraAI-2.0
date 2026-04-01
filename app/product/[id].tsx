@@ -12,6 +12,7 @@ import {
   addProductPhoto, deleteProductPhoto,
 } from '../../db/database';
 import type { Product, ProductPhoto, PurchaseOrder } from '../../db/types';
+import { findSimilarProducts, type SimilarityMatch } from '../../services/similarityEngine';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -95,6 +96,7 @@ export default function ProductDetailScreen() {
   const [poHistory, setPoHistory] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPhotoIdx, setSelectedPhotoIdx] = useState(0);
+  const [similarMatches, setSimilarMatches] = useState<SimilarityMatch[]>([]);
 
   const hasAiParams = !!(
     params.ai_garment_type || params.ai_primary_color || params.ai_pattern || params.ai_fabric
@@ -143,6 +145,10 @@ export default function ProductDetailScreen() {
     }
     setPoHistory(pos);
     setLoading(false);
+    // Load similar products in background
+    if (id) {
+      findSimilarProducts(id, 3).then(setSimilarMatches).catch(() => {});
+    }
   }, [id]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -396,15 +402,57 @@ export default function ProductDetailScreen() {
           })}
         </View>
 
-        {/* ── F. Similar Products (placeholder) ── */}
+        {/* ── F. Similar Products ── */}
         <View style={styles.glassCard}>
           <View style={styles.cardHeaderRow}>
             <Text style={styles.cardLabel}>SIMILAR PRODUCTS</Text>
-            <View style={styles.comingSoonBadge}>
-              <Text style={styles.comingSoonText}>Coming Soon</Text>
-            </View>
+            {similarMatches.length > 0 && (
+              <TouchableOpacity onPress={() => router.push({
+                pathname: '/similarity/results',
+                params: { productId: id },
+              } as never)}>
+                <Text style={styles.seeAllLink}>See All →</Text>
+              </TouchableOpacity>
+            )}
           </View>
-          <Text style={styles.emptyText}>Visual similarity powered by AI — coming in a future sprint.</Text>
+          {similarMatches.length === 0 ? (
+            <Text style={styles.emptyText}>No similar products found yet. Add more products with detailed attributes.</Text>
+          ) : (
+            similarMatches.map((match) => {
+              const col = match.score >= 0.8 ? colors.teal : match.score >= 0.6 ? colors.amber : colors.blue;
+              return (
+                <TouchableOpacity
+                  key={match.product.id}
+                  style={styles.simCard}
+                  onPress={() => router.push(`/product/${match.product.id}` as never)}
+                >
+                  <View style={styles.simCardBody}>
+                    <View style={[styles.simThumb, { backgroundColor: col + '20' }]}>
+                      <Text style={[styles.simThumbText, { color: col }]}>
+                        {(match.product.design_name ?? 'P')[0].toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={styles.simInfo}>
+                      <View style={styles.simTopRow}>
+                        <Text style={styles.simName} numberOfLines={1}>{match.product.design_name ?? '—'}</Text>
+                        <View style={[styles.simScoreBadge, { backgroundColor: col + '20' }]}>
+                          <Text style={[styles.simScoreText, { color: col }]}>
+                            {Math.round(match.score * 100)}%
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.simReasons}>{match.matchReasons.join(' · ')}</Text>
+                      {match.priceDiff != null && match.priceDiff > 0 && match.product.purchase_price != null && (
+                        <Text style={styles.simSavings}>
+                          ₹{match.product.purchase_price} — Save ₹{match.priceDiff}/pc
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            })
+          )}
         </View>
 
         <View style={{ height: 40 }} />
@@ -580,14 +628,19 @@ const styles = StyleSheet.create({
 
   emptyText: { fontSize: 13, color: 'rgba(255,255,255,0.25)', fontFamily: 'Inter_400Regular', paddingVertical: 8 },
 
-  // Coming soon
-  comingSoonBadge: {
-    backgroundColor: 'rgba(155,114,242,0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(155,114,242,0.3)',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+  seeAllLink: { fontSize: 13, color: colors.teal, fontFamily: 'Inter_700Bold' },
+  simCard: {
+    marginBottom: 8, paddingVertical: 8,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)',
   },
-  comingSoonText: { fontSize: 10, fontWeight: '700', color: '#9B72F2', fontFamily: 'Inter_700Bold' },
+  simCardBody: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  simThumb: { width: 36, height: 36, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
+  simThumbText: { fontSize: 16, fontWeight: '700', fontFamily: 'Inter_700Bold' },
+  simInfo: { flex: 1 },
+  simTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  simName: { fontSize: 13, fontWeight: '700', color: '#FFFFFF', fontFamily: 'Inter_700Bold', flex: 1 },
+  simScoreBadge: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 8 },
+  simScoreText: { fontSize: 11, fontWeight: '700', fontFamily: 'Inter_700Bold' },
+  simReasons: { fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular', marginTop: 2 },
+  simSavings: { fontSize: 12, color: colors.teal, fontFamily: 'Inter_700Bold', marginTop: 2 },
 });

@@ -6,6 +6,7 @@ import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import ProductForm from '../../components/ProductForm';
 import type { Product } from '../../db/types';
+import { runProactiveSimilarityCheck } from '../../services/similarityEngine';
 
 export default function NewProductScreen() {
   const router = useRouter();
@@ -98,6 +99,7 @@ export default function NewProductScreen() {
         initial={initial}
         aiConfidence={aiConfidence}
         aiFields={aiFields}
+        onAfterSave={(newId) => { runProactiveSimilarityCheck(newId); }}
       />
     </SafeAreaView>
   );

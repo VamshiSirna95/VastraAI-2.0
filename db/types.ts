@@ -390,13 +390,65 @@ export interface CustomerDemand {
 
 export interface AppNotification {
   id: number;
-  type: 'po_status' | 'grn_due' | 'stock_low' | 'demand_match' | 'transfer' | 'system';
+  type: 'po_status' | 'grn_due' | 'stock_low' | 'demand_match' | 'transfer' | 'system' | 'similarity' | 'competition';
   title: string;
   body: string;
   reference_type?: string;
   reference_id?: string;
   is_read: number;
   created_at: string;
+}
+
+export interface CompetitorPrice {
+  id: number;
+  product_id?: string;
+  competitor_name: string;
+  competitor_price: number;
+  our_mrp?: number;
+  our_selling_price?: number;
+  our_offer_percent?: number;
+  photo_uri?: string;
+  notes?: string;
+  captured_at: string;
+  store_id?: number;
+  // Joined
+  product_name?: string;
+  store_name?: string;
+}
+
+export interface CompetitionSummaryItem {
+  product_id: string;
+  product_name: string;
+  our_price: number;
+  competitor_price: number;
+  competitor_name: string;
+  price_diff: number;
+  recommendation: string;
+}
+
+export interface DispatchNote {
+  id: number;
+  grn_id?: string;
+  store_id: number;
+  dispatch_number: string;
+  items_json: string;
+  total_items?: number;
+  total_qty?: number;
+  status: 'generated' | 'dispatched' | 'in_transit' | 'received';
+  dispatched_at?: string;
+  received_at?: string;
+  received_by?: string;
+  created_at: string;
+  // Joined
+  store_name?: string;
+  grn_number?: string;
+}
+
+export interface DispatchNoteItem {
+  productId: string;
+  productName: string;
+  sizeAllocations: Record<string, number>;
+  totalQty: number;
 }
 
 export interface SeasonalPlan {

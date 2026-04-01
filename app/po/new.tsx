@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   TextInput, Alert,
 } from 'react-native';
+
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
@@ -21,6 +22,7 @@ import type { VoiceNote } from '../../db/types';
 import { calculateDelivery, formatDate, type DeliverySchedule } from '../../services/delivery';
 import type { PurchaseOrder, POItem, Vendor, PurchaseTrip } from '../../db/types';
 import { SIZE_TEMPLATES } from '../../db/types';
+import { findSimilarProducts, getTotalStockForProduct } from '../../services/similarityEngine';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -161,6 +163,8 @@ export default function NewPOScreen() {
   const [saving, setSaving] = useState(false);
   const [voiceNotes, setVoiceNotes] = useState<VoiceNote[]>([]);
   const [showPORecorder, setShowPORecorder] = useState(false);
+  const [simWarnings, setSimWarnings] = useState<Record<string, string>>({});
+  const [dismissedWarnings, setDismissedWarnings] = useState<Record<string, boolean>>({});
   // Ref to persist vendor_id synchronously (avoids async state update timing issue)
   const vendorIdRef = useRef<string | undefined>(undefined);
 
@@ -236,6 +240,23 @@ export default function NewPOScreen() {
         Object.keys(prev).forEach((k) => { if (prev[k] > 0) merged[k] = prev[k]; });
         return merged;
       });
+
+      // Run background similarity checks for duplicate prevention
+      for (const item of enriched) {
+        if (!item.product_id) continue;
+        findSimilarProducts(item.product_id, 3).then(async (matches) => {
+          for (const match of matches) {
+            if (match.score >= 0.8) {
+              const { totalQty, storeName } = await getTotalStockForProduct(match.product.id);
+              if (totalQty > 0) {
+                const warning = `⚠️ ${Math.round(match.score * 100)}% similar to "${match.product.design_name ?? 'product'}" — ${totalQty} units in stock${storeName ? ` at ${storeName}` : ''}`;
+                setSimWarnings((prev) => ({ ...prev, [item.id]: warning }));
+                break;
+              }
+            }
+          }
+        }).catch(() => {});
+      }
     }
   };
 
@@ -397,31 +418,43 @@ export default function NewPOScreen() {
           </View>
 
           {items.map((item) => (
-            <ArticleCard
-              key={item.id}
-              item={item}
-              localSizes={localSizes[item.id] ?? dbToSizes(item.garment_type ?? 'default', item)}
-              unitPrice={unitPrices[item.id] ?? 0}
-              onUnitPriceChange={(val) => {
-                setUnitPrices((prev) => ({ ...prev, [item.id]: val }));
-                const dbSizes = sizesToDB(item.garment_type ?? 'default', localSizes[item.id] ?? {});
-                updatePOItem(item.id, { ...dbSizes, unit_price: val });
-              }}
-              onSizesChange={(sizes, _qty, _price) => {
-                setLocalSizes((prev) => ({ ...prev, [item.id]: sizes }));
-                const dbSizes = sizesToDB(item.garment_type ?? 'default', sizes);
-                updatePOItem(item.id, { ...dbSizes, unit_price: unitPrices[item.id] ?? 0 });
-              }}
-              onRemove={() => {
-                removePOItem(item.id).then(reloadItems);
-                setLocalSizes((prev) => {
-                  const next = { ...prev };
-                  delete next[item.id];
-                  return next;
-                });
-                setItems((prev) => prev.filter((i) => i.id !== item.id));
-              }}
-            />
+            <View key={item.id}>
+              <ArticleCard
+                item={item}
+                localSizes={localSizes[item.id] ?? dbToSizes(item.garment_type ?? 'default', item)}
+                unitPrice={unitPrices[item.id] ?? 0}
+                onUnitPriceChange={(val) => {
+                  setUnitPrices((prev) => ({ ...prev, [item.id]: val }));
+                  const dbSizes = sizesToDB(item.garment_type ?? 'default', localSizes[item.id] ?? {});
+                  updatePOItem(item.id, { ...dbSizes, unit_price: val });
+                }}
+                onSizesChange={(sizes, _qty, _price) => {
+                  setLocalSizes((prev) => ({ ...prev, [item.id]: sizes }));
+                  const dbSizes = sizesToDB(item.garment_type ?? 'default', sizes);
+                  updatePOItem(item.id, { ...dbSizes, unit_price: unitPrices[item.id] ?? 0 });
+                }}
+                onRemove={() => {
+                  removePOItem(item.id).then(reloadItems);
+                  setLocalSizes((prev) => {
+                    const next = { ...prev };
+                    delete next[item.id];
+                    return next;
+                  });
+                  setItems((prev) => prev.filter((i) => i.id !== item.id));
+                }}
+              />
+              {simWarnings[item.id] && !dismissedWarnings[item.id] && (
+                <View style={styles.simWarning}>
+                  <Text style={styles.simWarningText}>{simWarnings[item.id]}</Text>
+                  <TouchableOpacity
+                    onPress={() => setDismissedWarnings((prev) => ({ ...prev, [item.id]: true }))}
+                    hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                  >
+                    <Text style={styles.simWarningDismiss}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
           ))}
 
           <TouchableOpacity
@@ -735,6 +768,32 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.06)',
     padding: 12,
+  },
+
+  simWarning: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: hexToRgba(colors.amber, 0.08),
+    borderWidth: 1,
+    borderColor: hexToRgba(colors.amber, 0.25),
+    borderRadius: 8,
+    padding: 10,
+    marginHorizontal: 20,
+    marginBottom: 6,
+    gap: 8,
+  },
+  simWarningText: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.amber,
+    fontFamily: 'Inter_400Regular',
+    lineHeight: 17,
+  },
+  simWarningDismiss: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.3)',
+    fontFamily: 'Inter_400Regular',
+    paddingTop: 1,
   },
 
   addArticleBtn: {

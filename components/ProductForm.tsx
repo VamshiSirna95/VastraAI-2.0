@@ -78,6 +78,7 @@ interface ProductFormProps {
   productId?: string;
   aiConfidence?: number;
   aiFields?: AIFields;
+  onAfterSave?: (id: string) => void;
 }
 
 // ── Photo type badge config ───────────────────────────────────────────────────
@@ -146,7 +147,7 @@ function MarginBadge({ pp, sp }: { pp: string; sp: string }) {
 
 // ── Main form ─────────────────────────────────────────────────────────────────
 
-export default function ProductForm({ initial, productId, aiConfidence, aiFields }: ProductFormProps) {
+export default function ProductForm({ initial, productId, aiConfidence, aiFields, onAfterSave }: ProductFormProps) {
   const aiPct = aiConfidence != null ? Math.round(aiConfidence) : undefined;
   const router = useRouter();
   const isEdit = Boolean(productId);
@@ -347,6 +348,9 @@ export default function ProductForm({ initial, productId, aiConfidence, aiFields
         if (ca.name && ca.value) await setProductCustomAttr(id, ca.name, ca.value);
       }
 
+      if (onAfterSave) {
+        onAfterSave(id);
+      }
       router.back();
     } catch (err) {
       Alert.alert('Error', 'Failed to save product. Please try again.');

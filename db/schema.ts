@@ -365,4 +365,35 @@ export const CREATE_TABLES = [
     notes TEXT,
     priority TEXT DEFAULT 'medium'
   )`,
+
+  // Competition Prices — competitor price tracking per product
+  `CREATE TABLE IF NOT EXISTS competition_prices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id TEXT REFERENCES products(id),
+    competitor_name TEXT NOT NULL,
+    competitor_price REAL NOT NULL,
+    our_mrp REAL,
+    our_selling_price REAL,
+    our_offer_percent REAL DEFAULT 0,
+    photo_uri TEXT,
+    notes TEXT,
+    captured_at TEXT DEFAULT (datetime('now')),
+    store_id INTEGER REFERENCES stores(id)
+  )`,
+
+  // Dispatch Notes — per-store dispatch records after allocation
+  `CREATE TABLE IF NOT EXISTS dispatch_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    grn_id TEXT REFERENCES grn_records(id),
+    store_id INTEGER NOT NULL REFERENCES stores(id),
+    dispatch_number TEXT NOT NULL,
+    items_json TEXT NOT NULL,
+    total_items INTEGER,
+    total_qty INTEGER,
+    status TEXT DEFAULT 'generated',
+    dispatched_at TEXT,
+    received_at TEXT,
+    received_by TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
 ];
