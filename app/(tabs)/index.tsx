@@ -16,7 +16,7 @@ import { colors } from '../../constants/theme';
 import ModuleCard, { type PatternType, type MetricData } from '../../components/ModuleCard';
 import GlobalSearch from '../../components/GlobalSearch';
 import * as Haptics from 'expo-haptics';
-import { getPOs, getGRNPendingCount, getProductCount, getVendors, getUnreadCount, getStoreStock, getDemands } from '../../db/database';
+import { getPOs, getGRNPendingCount, getProductCount, getVendors, getUnreadCount, getStoreStock, getDemands, getWeekPOValue, getGRNAcceptRate, getAIAccuracy, getLowStockCount } from '../../db/database';
 import type { PurchaseOrder, StoreStock, CustomerDemand } from '../../db/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -130,6 +130,10 @@ export default function HomeScreen() {
   const [lowStockItem, setLowStockItem] = useState<StoreStock | null>(null);
   const [openDemandCount, setOpenDemandCount] = useState(0);
   const [topDemandDesc, setTopDemandDesc] = useState('');
+  const [weekPOValue, setWeekPOValue] = useState(0);
+  const [grnAcceptRate, setGrnAcceptRate] = useState(100);
+  const [aiAccuracy, setAiAccuracy] = useState<number | null>(null);
+  const [lowStockCount, setLowStockCount] = useState(0);
   const [showSearch, setShowSearch] = useState(false);
 
   useFocusEffect(useCallback(() => {
@@ -154,8 +158,18 @@ export default function HomeScreen() {
       setActivePOCount(activeCount);
       setGrnPendingCount(grnPending);
       setProductCount(pCount);
-      setSPlusCount(vendors.filter((v) => v.rank === 'S+' || (v.rating ?? 0) >= 4).length);
+      setSPlusCount(vendors.filter((v) => (v.rating ?? 0) >= 90).length);
       setDispatchedPOs(allPOs.filter((p) => p.status === 'dispatched').slice(0, 2));
+      const [weekVal, acceptRate, aiAcc, lowStockNum] = await Promise.all([
+        getWeekPOValue(),
+        getGRNAcceptRate(),
+        getAIAccuracy(),
+        getLowStockCount(),
+      ]);
+      setWeekPOValue(weekVal);
+      setGrnAcceptRate(acceptRate);
+      setAiAccuracy(aiAcc);
+      setLowStockCount(lowStockNum);
     };
     loadData();
   }, []));
@@ -169,7 +183,7 @@ export default function HomeScreen() {
       route: '/(tabs)/orders',
       metrics: [
         { value: String(productCount || '—'), label: 'Tagged', color: colors.teal },
-        { value: '92%', label: 'AI acc.', color: colors.textPrimary },
+        { value: aiAccuracy != null ? `${aiAccuracy}%` : '—', label: 'AI acc.', color: colors.textPrimary },
       ],
     },
     {
@@ -180,7 +194,7 @@ export default function HomeScreen() {
       route: '/po/new',
       metrics: [
         { value: String(activePOCount || '—'), label: 'Active', color: colors.amber },
-        { value: '₹3.4L', label: 'Week', color: colors.textPrimary },
+        { value: weekPOValue >= 100000 ? `₹${(weekPOValue/100000).toFixed(1)}L` : weekPOValue >= 1000 ? `₹${(weekPOValue/1000).toFixed(0)}K` : `₹${weekPOValue}`, label: 'Week', color: colors.textPrimary },
       ],
     },
     {
@@ -191,7 +205,7 @@ export default function HomeScreen() {
       route: '/(tabs)/orders',
       metrics: [
         { value: String(grnPendingCount || '—'), label: 'Pending', color: colors.red },
-        { value: '98%', label: 'Accept', color: colors.teal },
+        { value: `${grnAcceptRate}%`, label: 'Accept', color: colors.teal },
       ],
     },
     {
@@ -209,8 +223,8 @@ export default function HomeScreen() {
       accent: colors.purpleLight,
       title: 'Refill engine',
       patternType: 'zigzag',
-      route: '/reports',
-      metrics: [{ value: '8', label: 'Due', color: colors.purpleLight }],
+      route: '/refill',
+      metrics: [{ value: String(lowStockCount || '—'), label: 'Due', color: colors.purpleLight }],
     },
     {
       name: 'Vendors',
