@@ -19,7 +19,7 @@ import {
   getAIPriorityOrder, setAIPriorityOrder,
 } from '../../services/geminiAI';
 import { getCurrentUser, logout } from '../../services/auth';
-import { getProductCount, getVendors, getStores, getDb, verifyPin, updateUserPin, getUnreadCount, getDeletedPOCount } from '../../db/database';
+import { getProductCount, getVendors, getStores, getDb, verifyPin, updateUserPin, getUnreadCount, getDeletedPOCount, getDbVersion, checkDataIntegrity } from '../../db/database';
 import { getStorageStats, cleanupOldPhotos } from '../../services/imageManager';
 import { getErrorLog, clearErrorLog, getErrorLogPath } from '../../services/errorLogger';
 import * as Sharing from 'expo-sharing';
@@ -136,6 +136,9 @@ export default function SettingsScreen() {
   const [showErrorLog, setShowErrorLog] = useState(false);
   const [errorLogText, setErrorLogText] = useState('');
 
+  // DB health
+  const [dbVersion, setDbVersion] = useState(0);
+
   // Ollama
   const [ollamaUrl, setOllamaUrlState] = useState('');
   const [connStatus, setConnStatus] = useState<ConnectionStatus>('idle');
@@ -178,6 +181,9 @@ export default function SettingsScreen() {
         setStorageSizeMB(stats.totalSizeMB);
         setStoragePhotoCount(stats.totalPhotos);
       }).catch(() => {});
+
+      // Load DB version
+      getDbVersion().then(setDbVersion).catch(() => {});
 
       if (session) {
         setUserName(session.name);
@@ -699,7 +705,21 @@ export default function SettingsScreen() {
           <Text style={styles.brandSub}>Merchandise Intelligence Platform</Text>
           <Text style={styles.brandOrg}>K.M. Fashions / MGBT</Text>
           <InfoRow label="Version" value="v1.0.0-beta" accent={colors.teal} />
-          <InfoRow label="Build" value="2026-04-01" />
+          <InfoRow label="Build" value="2026-04-02" />
+          <InfoRow label="DB Version" value={`v${dbVersion}`} />
+          <TouchableOpacity
+            style={[styles.recalcBtn, { marginTop: 10, alignSelf: 'flex-start' }]}
+            onPress={async () => {
+              const issues = await checkDataIntegrity();
+              if (issues.length === 0) {
+                Alert.alert('Database Health', 'All checks passed. No integrity issues found.');
+              } else {
+                Alert.alert('Database Issues Found', issues.join('\n'));
+              }
+            }}
+          >
+            <Text style={styles.recalcBtnText}>Check Database Health</Text>
+          </TouchableOpacity>
           <Text style={styles.brandCredit}>Built with The Architect</Text>
         </Section>
 
@@ -1302,6 +1322,9 @@ const styles = StyleSheet.create({
   },
 
   // Storage
+  recalcBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  recalcBtnText: { fontSize: 11, color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_400Regular' },
+
   // Error log modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
   errorLogSheet: {

@@ -436,6 +436,12 @@ export const CREATE_TABLES = [
     created_at TEXT DEFAULT (datetime('now'))
   )`,
 
+  // App Metadata — version tracking + key-value store
+  `CREATE TABLE IF NOT EXISTS app_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  )`,
+
   // Vendor Communications — log calls, WhatsApp, emails, meetings
   `CREATE TABLE IF NOT EXISTS vendor_communications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

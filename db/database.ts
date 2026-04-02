@@ -19,43 +19,108 @@ export async function initDatabase(): Promise<void> {
   await seedDeliveryConfig();
 }
 
+const CURRENT_DB_VERSION = 21;
+
 async function addCol(table: string, col: string, def: string): Promise<void> {
   try { await getDb().execAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`); } catch { /* already exists */ }
 }
 
 async function runMigrations(): Promise<void> {
-  // purchase_orders new columns
-  await addCol('purchase_orders', 'cancellation_reason', 'TEXT');
-  await addCol('purchase_orders', 'cancelled_qty', 'INTEGER DEFAULT 0');
-  await addCol('purchase_orders', 'is_deleted', 'INTEGER DEFAULT 0');
-  await addCol('purchase_orders', 'deleted_at', 'TEXT');
-  await addCol('purchase_orders', 'document_uri', 'TEXT');
-  // grn_items new columns
-  await addCol('grn_items', 'size_data_json', 'TEXT');
-  // vendors new columns (V9)
-  await addCol('vendors', 'alt_phone', 'TEXT');
-  await addCol('vendors', 'email', 'TEXT');
-  await addCol('vendors', 'city', 'TEXT');
-  await addCol('vendors', 'state', 'TEXT');
-  await addCol('vendors', 'pincode', 'TEXT');
-  await addCol('vendors', 'address_line1', 'TEXT');
-  await addCol('vendors', 'address_line2', 'TEXT');
-  await addCol('vendors', 'gstin', 'TEXT');
-  await addCol('vendors', 'pan', 'TEXT');
-  await addCol('vendors', 'bank_name', 'TEXT');
-  await addCol('vendors', 'bank_account', 'TEXT');
-  await addCol('vendors', 'bank_ifsc', 'TEXT');
-  await addCol('vendors', 'payment_terms', 'TEXT');
-  await addCol('vendors', 'rating', 'REAL DEFAULT 0');
-  await addCol('vendors', 'avg_lead_days', 'INTEGER DEFAULT 0');
-  await addCol('vendors', 'total_orders', 'INTEGER DEFAULT 0');
-  await addCol('vendors', 'total_value', 'REAL DEFAULT 0');
-  await addCol('vendors', 'is_active', 'INTEGER DEFAULT 1');
-  // products AI tracking columns (V13)
-  await addCol('products', 'ai_detected', 'INTEGER DEFAULT 0');
-  await addCol('products', 'ai_overrides', 'TEXT');
-  // V17: competition_prices and dispatch_notes are created via CREATE TABLE IF NOT EXISTS above
-  // V20: sales_data, data_uploads, product_offers are created via CREATE TABLE IF NOT EXISTS above
+  const db = getDb();
+
+  // Get current version from app_metadata
+  const row = await db.getFirstAsync<{ value: string }>(
+    `SELECT value FROM app_metadata WHERE key = 'db_version'`
+  );
+  const currentVersion = row ? parseInt(row.value, 10) : 0;
+
+  if (currentVersion >= CURRENT_DB_VERSION) return;
+
+  // ── V1–V8: base tables created via CREATE TABLE IF NOT EXISTS ─────────────
+
+  // ── V9: purchase_orders + grn_items + vendor extended columns ────────────
+  if (currentVersion < 9) {
+    await addCol('purchase_orders', 'cancellation_reason', 'TEXT');
+    await addCol('purchase_orders', 'cancelled_qty', 'INTEGER DEFAULT 0');
+    await addCol('purchase_orders', 'is_deleted', 'INTEGER DEFAULT 0');
+    await addCol('purchase_orders', 'deleted_at', 'TEXT');
+    await addCol('purchase_orders', 'document_uri', 'TEXT');
+    await addCol('grn_items', 'size_data_json', 'TEXT');
+    await addCol('vendors', 'alt_phone', 'TEXT');
+    await addCol('vendors', 'email', 'TEXT');
+    await addCol('vendors', 'city', 'TEXT');
+    await addCol('vendors', 'state', 'TEXT');
+    await addCol('vendors', 'pincode', 'TEXT');
+    await addCol('vendors', 'address_line1', 'TEXT');
+    await addCol('vendors', 'address_line2', 'TEXT');
+    await addCol('vendors', 'gstin', 'TEXT');
+    await addCol('vendors', 'pan', 'TEXT');
+    await addCol('vendors', 'bank_name', 'TEXT');
+    await addCol('vendors', 'bank_account', 'TEXT');
+    await addCol('vendors', 'bank_ifsc', 'TEXT');
+    await addCol('vendors', 'payment_terms', 'TEXT');
+    await addCol('vendors', 'rating', 'REAL DEFAULT 0');
+    await addCol('vendors', 'avg_lead_days', 'INTEGER DEFAULT 0');
+    await addCol('vendors', 'total_orders', 'INTEGER DEFAULT 0');
+    await addCol('vendors', 'total_value', 'REAL DEFAULT 0');
+    await addCol('vendors', 'is_active', 'INTEGER DEFAULT 1');
+  }
+
+  // ── V13: products AI columns ──────────────────────────────────────────────
+  if (currentVersion < 13) {
+    await addCol('products', 'ai_detected', 'INTEGER DEFAULT 0');
+    await addCol('products', 'ai_overrides', 'TEXT');
+    await addCol('products', 'ai_confidence', 'REAL DEFAULT 0');
+  }
+
+  // ── V21: ensure all sprint columns exist ─────────────────────────────────
+  if (currentVersion < 21) {
+    await addCol('purchase_orders', 'source', 'TEXT');
+    await addCol('grn_items', 'ai_comparison_json', 'TEXT');
+    await addCol('products', 'barcode', 'TEXT');
+    // V17+ tables created via CREATE TABLE IF NOT EXISTS — no ALTER needed
+    // V20+ tables created via CREATE TABLE IF NOT EXISTS — no ALTER needed
+    // V21: vendor_communications created via CREATE TABLE IF NOT EXISTS
+  }
+
+  // Store new version
+  await db.runAsync(
+    `INSERT OR REPLACE INTO app_metadata (key, value) VALUES ('db_version', ?)`,
+    [String(CURRENT_DB_VERSION)]
+  );
+}
+
+export async function getDbVersion(): Promise<number> {
+  try {
+    const row = await getDb().getFirstAsync<{ value: string }>(
+      `SELECT value FROM app_metadata WHERE key = 'db_version'`
+    );
+    return row ? parseInt(row.value, 10) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function checkDataIntegrity(): Promise<string[]> {
+  const db = getDb();
+  const issues: string[] = [];
+
+  const orphanedItems = await db.getFirstAsync<{ c: number }>(
+    `SELECT COUNT(*) as c FROM po_items WHERE po_id NOT IN (SELECT id FROM purchase_orders)`
+  );
+  if ((orphanedItems?.c ?? 0) > 0) issues.push(`${orphanedItems!.c} orphaned PO items`);
+
+  const orphanedGRN = await db.getFirstAsync<{ c: number }>(
+    `SELECT COUNT(*) as c FROM grn_records WHERE po_id NOT IN (SELECT id FROM purchase_orders)`
+  );
+  if ((orphanedGRN?.c ?? 0) > 0) issues.push(`${orphanedGRN!.c} orphaned GRN records`);
+
+  const badVendors = await db.getFirstAsync<{ c: number }>(
+    `SELECT COUNT(*) as c FROM purchase_orders WHERE vendor_id IS NOT NULL AND vendor_id NOT IN (SELECT id FROM vendors)`
+  );
+  if ((badVendors?.c ?? 0) > 0) issues.push(`${badVendors!.c} POs with invalid vendor reference`);
+
+  return issues;
 }
 
 export function getDb(): SQLite.SQLiteDatabase {
