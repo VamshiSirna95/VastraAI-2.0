@@ -14,16 +14,13 @@ import {
 } from '../../db/database';
 import type { VendorCommunication } from '../../db/database';
 import type { Vendor, PurchaseOrder } from '../../db/types';
+import { formatINR, formatPhone } from '../../utils/format';
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r},${g},${b},${alpha})`;
-}
-
-function formatINR(val: number): string {
-  return '₹' + val.toLocaleString('en-IN');
 }
 
 const RANKS = ['S+', 'S', 'A', 'B', 'C', 'D', 'E'] as const;
@@ -303,7 +300,7 @@ export default function VendorDetailScreen() {
               {vendor.contact_person ? <InfoRow label="Contact" value={vendor.contact_person} /> : null}
               {vendor.phone ? (
                 <TouchableOpacity onPress={() => Linking.openURL(`tel:${vendor.phone}`)}>
-                  <InfoRow label="Phone" value={vendor.phone} highlight />
+                  <InfoRow label="Phone" value={formatPhone(vendor.phone)} highlight />
                 </TouchableOpacity>
               ) : null}
               {vendor.alt_phone ? (

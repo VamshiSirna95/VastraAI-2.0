@@ -7,12 +7,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import { getRefillSuggestions, generateRefillPO, type RefillSuggestion } from '../../services/refillEngine';
-
-function formatINR(val: number): string {
-  if (val >= 100000) return `₹${(val / 100000).toFixed(1)}L`;
-  if (val >= 1000) return `₹${(val / 1000).toFixed(0)}K`;
-  return '₹' + val.toLocaleString('en-IN');
-}
+import { formatINR } from '../../utils/format';
 
 const URGENCY_COLOR: Record<RefillSuggestion['urgency'], string> = {
   critical: '#E24B4A',

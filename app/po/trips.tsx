@@ -8,16 +8,13 @@ import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import { getTrips } from '../../db/database';
 import type { PurchaseTrip } from '../../db/types';
+import { formatINR } from '../../utils/format';
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r},${g},${b},${alpha})`;
-}
-
-function formatINR(val: number): string {
-  return '₹' + val.toLocaleString('en-IN');
 }
 
 interface TripCardProps {

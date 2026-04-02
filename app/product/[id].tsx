@@ -13,12 +13,9 @@ import {
 } from '../../db/database';
 import type { Product, ProductPhoto, PurchaseOrder } from '../../db/types';
 import { findSimilarProducts, type SimilarityMatch } from '../../services/similarityEngine';
+import { formatINR } from '../../utils/format';
 
 const { width: SCREEN_W } = Dimensions.get('window');
-
-function formatINR(val: number): string {
-  return '₹' + val.toLocaleString('en-IN');
-}
 
 function marginColor(pct: number): string {
   if (pct >= 30) return colors.teal;

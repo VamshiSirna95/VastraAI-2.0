@@ -20,6 +20,7 @@ import VoiceNotePlayer from '../../components/VoiceNotePlayer';
 import { DeliveryCard } from '../../components/DeliveryCard';
 import { calculateDelivery, type DeliverySchedule } from '../../services/delivery';
 import { generatePODocument } from '../../services/poDocument';
+import { formatINR } from '../../utils/format';
 
 const CANCEL_REASONS = [
   'Vendor unable to deliver',
@@ -34,10 +35,6 @@ function hexToRgba(hex: string, alpha: number): string {
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r},${g},${b},${alpha})`;
-}
-
-function formatINR(val: number): string {
-  return '₹' + val.toLocaleString('en-IN');
 }
 
 type POStatus = PurchaseOrder['status'];

@@ -17,6 +17,7 @@ import Svg, { Path, Circle } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import { getProducts, getProductsPaginated, getProductCount, getPOs, getPOCount, getDeletedPOCount, getGRNByPO } from '../../db/database';
 import type { Product, PurchaseOrder } from '../../db/types';
+import { formatINR } from '../../utils/format';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -60,10 +61,6 @@ function hexToRgba(hex: string, alpha: number): string {
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r},${g},${b},${alpha})`;
-}
-
-function formatINR(val: number): string {
-  return '₹' + val.toLocaleString('en-IN');
 }
 
 // ── Product card ──────────────────────────────────────────────────────────────

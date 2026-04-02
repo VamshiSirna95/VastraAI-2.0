@@ -10,6 +10,7 @@ import {
 } from '../../db/database';
 import type { AnalyticsData } from '../../db/types';
 import type { ColorStat, PatternStat, StoreSalesStat } from '../../db/database';
+import { formatINR } from '../../utils/format';
 
 // ── Date range helpers ────────────────────────────────────────────────────────
 
@@ -32,12 +33,6 @@ function getDateRange(key: RangeKey): { from: string; to: string } {
   else if (key === '1Y') from.setFullYear(from.getFullYear() - 1);
   else { return { from: '2000-01-01', to }; }
   return { from: from.toISOString().slice(0, 10), to };
-}
-
-function formatINR(val: number): string {
-  if (val >= 1_00_000) return '₹' + (val / 1_00_000).toFixed(1) + 'L';
-  if (val >= 1_000) return '₹' + (val / 1_000).toFixed(1) + 'K';
-  return '₹' + val.toLocaleString('en-IN');
 }
 
 // ── View-based bar chart ──────────────────────────────────────────────────────

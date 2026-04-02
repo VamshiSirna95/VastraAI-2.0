@@ -7,18 +7,13 @@ import { colors } from '../../constants/theme';
 import { getPOSummaryReport } from '../../db/database';
 import type { POSummaryReport } from '../../db/database';
 import { exportPOSummaryExcel } from '../../services/excelExport';
+import { formatINR } from '../../utils/format';
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r},${g},${b},${alpha})`;
-}
-
-function formatINR(val: number): string {
-  if (val >= 100000) return `₹${(val / 100000).toFixed(1)}L`;
-  if (val >= 1000) return `₹${(val / 1000).toFixed(0)}K`;
-  return '₹' + val.toLocaleString('en-IN');
 }
 
 const STATUS_COLOR: Record<string, string> = {

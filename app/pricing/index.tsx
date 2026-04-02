@@ -12,12 +12,7 @@ import {
   getUpcomingFestivals, getCompetitorOverpricedCount,
 } from '../../db/database';
 import type { MarkdownCandidate, ProductOffer } from '../../db/database';
-
-function formatINR(val: number): string {
-  if (val >= 1_00_000) return '₹' + (val / 1_00_000).toFixed(1) + 'L';
-  if (val >= 1_000) return '₹' + (val / 1_000).toFixed(1) + 'K';
-  return '₹' + Math.round(val).toLocaleString('en-IN');
-}
+import { formatINR } from '../../utils/format';
 
 function estimateClearanceDays(sellThroughPct: number, markdownPct: number, daysInStock: number): number {
   // Each 10% markdown roughly 1.5x velocity; sell_through drives base estimate

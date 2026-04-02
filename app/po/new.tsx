@@ -23,6 +23,7 @@ import { calculateDelivery, formatDate, type DeliverySchedule } from '../../serv
 import type { PurchaseOrder, POItem, Vendor, PurchaseTrip } from '../../db/types';
 import { SIZE_TEMPLATES } from '../../db/types';
 import { findSimilarProducts, getTotalStockForProduct } from '../../services/similarityEngine';
+import { formatINR } from '../../utils/format';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -31,10 +32,6 @@ function hexToRgba(hex: string, alpha: number): string {
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r},${g},${b},${alpha})`;
-}
-
-function formatINR(val: number): string {
-  return '₹' + val.toLocaleString('en-IN');
 }
 
 const SIZE_COLS = ['size_s', 'size_m', 'size_l', 'size_xl', 'size_xxl', 'size_free'] as const;
