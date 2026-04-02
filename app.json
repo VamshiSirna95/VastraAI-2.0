@@ -5,14 +5,38 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "vastra",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
       "backgroundColor": "#000000"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.kmfashions.vastra",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "VASTRA needs camera access to scan garments and capture product photos",
+        "NSMicrophoneUsageDescription": "VASTRA needs microphone access to record voice notes on purchase orders",
+        "NSPhotoLibraryUsageDescription": "VASTRA needs photo access to import garment images"
+      }
     },
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
-      }
+      },
+      "package": "com.kmfashions.vastra",
+      "versionCode": 1,
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "VIBRATE"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -27,10 +51,18 @@
         }
       ],
       "expo-asset",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-image-picker",
+      "expo-document-picker",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "auto"
+      }
     }
   }
 }
