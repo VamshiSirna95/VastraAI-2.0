@@ -8,6 +8,8 @@ import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import { getSeasonalPlans, createSeasonalPlan } from '../../db/database';
 import type { SeasonalPlan } from '../../db/types';
+import { logError } from '../../services/errorLogger';
+import { formatINR } from '../../utils/format';
 
 // ── Indian retail festival calendar ──────────────────────────────────────────
 
@@ -53,11 +55,16 @@ export default function SeasonalIndexScreen() {
   const router = useRouter();
   const [plans, setPlans] = useState<SeasonalPlan[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(false);
     try {
       setPlans(await getSeasonalPlans());
+    } catch (e) {
+      logError('SeasonalIndexScreen.load', e);
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -116,6 +123,13 @@ export default function SeasonalIndexScreen() {
 
       {loading ? (
         <View style={styles.loader}><ActivityIndicator color={colors.teal} size="large" /></View>
+      ) : error ? (
+        <View style={styles.errorState}>
+          <Text style={styles.errorText}>Failed to load plans</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={load}>
+            <Text style={styles.retryBtnText}>Tap to retry</Text>
+          </TouchableOpacity>
+        </View>
       ) : (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
 
@@ -145,10 +159,10 @@ export default function SeasonalIndexScreen() {
                         <Text style={styles.planMetaText}>{p.item_count} categories</Text>
                       )}
                       {p.target_budget ? (
-                        <Text style={styles.planMetaText}>Budget: ₹{p.target_budget.toLocaleString('en-IN')}</Text>
+                        <Text style={styles.planMetaText}>Budget: {formatINR(p.target_budget)}</Text>
                       ) : null}
                       {(p.allocated_value ?? 0) > 0 ? (
-                        <Text style={[styles.planMetaText, { color: colors.teal }]}>₹{(p.allocated_value ?? 0).toLocaleString('en-IN')} planned</Text>
+                        <Text style={[styles.planMetaText, { color: colors.teal }]}>{formatINR(p.allocated_value ?? 0)} planned</Text>
                       ) : null}
                     </View>
                   </View>
@@ -224,6 +238,10 @@ const styles = StyleSheet.create({
   customBtnText: { fontSize: 13, fontWeight: '700', color: colors.teal, fontFamily: 'Inter_700Bold' },
 
   loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  errorState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 80, gap: 12 },
+  errorText: { fontSize: 15, color: colors.red, fontFamily: 'Inter_400Regular' },
+  retryBtn: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', backgroundColor: 'rgba(255,255,255,0.06)' },
+  retryBtnText: { fontSize: 13, color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_700Bold' },
   content: { paddingHorizontal: 16 },
   sectionLabel: {
     fontSize: 11, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase',

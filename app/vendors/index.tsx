@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, FlatList, RefreshControl,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, FlatList, RefreshControl, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -8,6 +8,7 @@ import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import { getVendors, updateAllVendorRanks } from '../../db/database';
 import type { Vendor } from '../../db/types';
+import { logError } from '../../services/errorLogger';
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -84,13 +85,24 @@ function VendorCard({ vendor, onPress }: { vendor: Vendor; onPress: () => void }
 export default function VendorsScreen() {
   const router = useRouter();
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [search, setSearch] = useState('');
   const [activeOnly, setActiveOnly] = useState(true);
   const [ranking, setRanking] = useState(false);
 
   const load = useCallback(async () => {
-    const list = await getVendors(search || undefined, activeOnly);
-    setVendors(list);
+    setLoading(true);
+    setError(false);
+    try {
+      const list = await getVendors(search || undefined, activeOnly);
+      setVendors(list);
+    } catch (e) {
+      logError('VendorsScreen.load', e);
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
   }, [search, activeOnly]);
 
   const [refreshing, setRefreshing] = useState(false);
@@ -163,7 +175,20 @@ export default function VendorsScreen() {
         </TouchableOpacity>
       </View>
 
-      <FlatList
+      {loading ? (
+        <View style={styles.loader}>
+          <ActivityIndicator color={colors.teal} size="large" />
+        </View>
+      ) : error ? (
+        <View style={styles.errorState}>
+          <Text style={styles.errorText}>Failed to load vendors</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={load}>
+            <Text style={styles.retryBtnText}>Tap to retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {!loading && !error && <FlatList
         data={vendors}
         keyExtractor={(v) => v.id}
         renderItem={useCallback(({ item }: { item: typeof vendors[0] }) => (
@@ -181,7 +206,7 @@ export default function VendorsScreen() {
             <Text style={styles.emptyText}>No vendors found</Text>
           </View>
         }
-      />
+      />}
 
       {/* FAB */}
       <TouchableOpacity style={styles.fab} onPress={() => router.push('/vendors/new')}>
@@ -290,6 +315,12 @@ const styles = StyleSheet.create({
 
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 80 },
   emptyText: { fontSize: 15, color: 'rgba(255,255,255,0.3)', fontFamily: 'Inter_400Regular' },
+
+  loader: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 80 },
+  errorState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 80, gap: 12 },
+  errorText: { fontSize: 15, color: colors.red, fontFamily: 'Inter_400Regular' },
+  retryBtn: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', backgroundColor: 'rgba(255,255,255,0.06)' },
+  retryBtnText: { fontSize: 13, color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_700Bold' },
 
   fab: {
     position: 'absolute',

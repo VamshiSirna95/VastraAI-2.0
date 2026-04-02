@@ -8,6 +8,7 @@ import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import { getProducts } from '../../db/database';
 import type { Product } from '../../db/types';
+import { logError } from '../../services/errorLogger';
 
 export default function SimilarityHubScreen() {
   const router = useRouter();
@@ -18,7 +19,7 @@ export default function SimilarityHubScreen() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    getProducts().then(setProducts).catch(() => {});
+    getProducts().then(setProducts).catch((e) => logError('SimilarityHubScreen.load', e));
   }, []);
 
   const filtered = search.length >= 2

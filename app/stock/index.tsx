@@ -10,6 +10,7 @@ import { colors } from '../../constants/theme';
 import { getStoreStock, getStores } from '../../db/database';
 import type { StoreStock, Store } from '../../db/types';
 import VoiceSearchButton from '../../components/VoiceSearchButton';
+import { logError } from '../../services/errorLogger';
 
 type FilterTab = 'Low Stock' | 'Surplus' | 'All';
 
@@ -61,16 +62,21 @@ export default function StockPoolScreen() {
   const [allStock, setAllStock] = useState<StoreStock[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterTab>('Low Stock');
   const [storeFilter, setStoreFilter] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(false);
     try {
       const [stock, storeList] = await Promise.all([getStoreStock(), getStores()]);
       setAllStock(stock);
       setStores(storeList);
+    } catch (e) {
+      logError('StockPoolScreen.load', e);
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -174,6 +180,13 @@ export default function StockPoolScreen() {
       {loading ? (
         <View style={styles.loader}>
           <ActivityIndicator color={colors.teal} size="large" />
+        </View>
+      ) : error ? (
+        <View style={styles.errorState}>
+          <Text style={styles.errorText}>Failed to load stock data</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={load}>
+            <Text style={styles.retryBtnText}>Tap to retry</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.teal} colors={[colors.teal]} />}>
@@ -301,6 +314,11 @@ const styles = StyleSheet.create({
   emptyState: { paddingTop: 60, alignItems: 'center', gap: 8 },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: 'rgba(255,255,255,0.3)', fontFamily: 'Inter_700Bold' },
   emptyBody: { fontSize: 13, color: 'rgba(255,255,255,0.2)', fontFamily: 'Inter_400Regular', textAlign: 'center', paddingHorizontal: 32 },
+
+  errorState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 80, gap: 12 },
+  errorText: { fontSize: 15, color: colors.red, fontFamily: 'Inter_400Regular' },
+  retryBtn: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', backgroundColor: 'rgba(255,255,255,0.06)' },
+  retryBtnText: { fontSize: 13, color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_700Bold' },
 
   productCard: {
     backgroundColor: 'rgba(255,255,255,0.04)',
