@@ -166,11 +166,15 @@ export default function VendorsScreen() {
       <FlatList
         data={vendors}
         keyExtractor={(v) => v.id}
-        renderItem={({ item }) => (
+        renderItem={useCallback(({ item }: { item: typeof vendors[0] }) => (
           <VendorCard vendor={item} onPress={() => router.push(`/vendors/${item.id}`)} />
-        )}
+        ), [router])}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        initialNumToRender={10}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.teal} colors={[colors.teal]} />}
         ListEmptyComponent={
           <View style={styles.empty}>

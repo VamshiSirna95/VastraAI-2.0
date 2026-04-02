@@ -9,12 +9,13 @@ import {
   ScrollView,
   Dimensions,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { colors } from '../../constants/theme';
-import { getProducts, getProductCount, getPOs, getPOCount, getDeletedPOCount, getGRNByPO } from '../../db/database';
+import { getProducts, getProductsPaginated, getProductCount, getPOs, getPOCount, getDeletedPOCount, getGRNByPO } from '../../db/database';
 import type { Product, PurchaseOrder } from '../../db/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -256,16 +257,22 @@ export default function OrdersScreen() {
   const [deletedCount, setDeletedCount] = useState(0);
   const [search, setSearch] = useState('');
   const [activeType, setActiveType] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMoreProducts, setHasMoreProducts] = useState(true);
+  const PAGE_SIZE = 20;
 
   const load = useCallback(async () => {
-    const [all, cnt, allPOs, poCnt, delCnt] = await Promise.all([
-      getProducts({ search: search || undefined, garmentType: activeType ?? undefined }),
+    const [firstPage, cnt, allPOs, poCnt, delCnt] = await Promise.all([
+      (search || activeType)
+        ? getProducts({ search: search || undefined, garmentType: activeType ?? undefined })
+        : getProductsPaginated(0, PAGE_SIZE),
       getProductCount(),
       getPOs(),
       getPOCount(),
       getDeletedPOCount(),
     ]);
-    setProducts(all as (Product & { vendor_name?: string })[]);
+    setProducts(firstPage as (Product & { vendor_name?: string })[]);
+    setHasMoreProducts(!search && !activeType && firstPage.length === PAGE_SIZE);
     setTotalProductCount(cnt);
     setTotalPOCount(poCnt);
     setDeletedCount(delCnt);
@@ -284,6 +291,22 @@ export default function OrdersScreen() {
     );
     setPos(posWithGRN);
   }, [search, activeType]);
+
+  const loadMoreProducts = useCallback(async () => {
+    if (loadingMore || !hasMoreProducts || search || activeType) return;
+    setLoadingMore(true);
+    try {
+      const more = await getProductsPaginated(products.length, PAGE_SIZE);
+      if (more.length > 0) {
+        setProducts((prev) => [...prev, ...more as (Product & { vendor_name?: string })[]]);
+        setHasMoreProducts(more.length === PAGE_SIZE);
+      } else {
+        setHasMoreProducts(false);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMoreProducts, search, activeType, products.length]);
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
@@ -365,12 +388,19 @@ export default function OrdersScreen() {
           <FlatList
             data={products}
             keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
+            renderItem={useCallback(({ item }: { item: typeof products[0] }) => (
               <ProductCard product={item} onPress={() => router.push(`/product/${item.id}`)} />
-            )}
+            ), [router])}
             contentContainerStyle={[styles.listContent, products.length === 0 && styles.listEmpty]}
             ListEmptyComponent={<EmptyState onScan={() => router.push('/(tabs)/scan')} />}
             showsVerticalScrollIndicator={false}
+            removeClippedSubviews
+            maxToRenderPerBatch={10}
+            windowSize={5}
+            initialNumToRender={10}
+            onEndReached={loadMoreProducts}
+            onEndReachedThreshold={0.3}
+            ListFooterComponent={loadingMore ? <ActivityIndicator size="small" color={colors.teal} style={{ paddingVertical: 12 }} /> : null}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.teal} colors={[colors.teal]} />}
           />
 
@@ -403,12 +433,16 @@ export default function OrdersScreen() {
           <FlatList
             data={pos}
             keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
+            renderItem={useCallback(({ item }: { item: typeof pos[0] }) => (
               <POCard po={item} onPress={() => router.push(`/po/${item.id}`)} />
-            )}
+            ), [router])}
             contentContainerStyle={[styles.listContent, pos.length === 0 && styles.listEmpty]}
             ListEmptyComponent={<EmptyPOs onCreate={() => router.push('/po/new')} />}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.teal} colors={[colors.teal]} />}
+            removeClippedSubviews
+            maxToRenderPerBatch={10}
+            windowSize={5}
+            initialNumToRender={10}
             ListFooterComponent={
               deletedCount > 0 ? (
                 <TouchableOpacity style={styles.deletedLink} onPress={() => router.push('/po/deleted')}>

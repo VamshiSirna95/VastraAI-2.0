@@ -94,14 +94,18 @@ export default function TripsScreen() {
       <FlatList
         data={trips}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
+        renderItem={useCallback(({ item }: { item: typeof trips[0] }) => (
           <TripCard
             trip={item}
             onPress={() => router.push(`/po/trip/${item.id}`)}
           />
-        )}
+        ), [router])}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        initialNumToRender={10}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyTitle}>No trips yet</Text>
