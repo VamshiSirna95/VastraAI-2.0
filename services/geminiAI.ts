@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { logError } from './errorLogger';
 
 const GEMINI_API_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
@@ -236,6 +237,7 @@ export async function testGeminiConnection(apiKey: string): Promise<{
     }
     return { connected: true };
   } catch (e: unknown) {
+    logError('testGeminiConnection', e);
     return { connected: false, error: e instanceof Error ? e.message : 'Connection failed' };
   }
 }

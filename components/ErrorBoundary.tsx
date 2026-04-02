@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors } from '../constants/theme';
+import { logError } from '../services/errorLogger';
 
 interface Props {
   children: React.ReactNode;
@@ -25,6 +26,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
   componentDidCatch(error: unknown, info: unknown): void {
     console.error('[ErrorBoundary] Caught error:', error);
     console.error('[ErrorBoundary] Component info:', info);
+    logError('ErrorBoundary', error instanceof Error ? error : new Error(String(error)));
   }
 
   handleRestart = (): void => {

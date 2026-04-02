@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { AIDetectionResult } from './ai';
+import { logError } from './errorLogger';
 
 const DEFAULT_URL = 'http://192.168.1.100:11434';
 const TIMEOUT = 10000;
@@ -36,6 +37,7 @@ export async function testConnection(): Promise<{
         visionModels?.[0]?.name ?? data.models?.[0]?.name ?? 'unknown',
     };
   } catch (e: unknown) {
+    logError('testOllamaConnection', e);
     return {
       connected: false,
       error: e instanceof Error ? e.message : 'Unknown error',

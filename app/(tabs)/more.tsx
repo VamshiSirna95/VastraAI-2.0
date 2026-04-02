@@ -8,6 +8,7 @@ import {
   Alert,
   ActivityIndicator,
   Linking,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -20,6 +21,8 @@ import {
 import { getCurrentUser, logout } from '../../services/auth';
 import { getProductCount, getVendors, getStores, getDb, verifyPin, updateUserPin, getUnreadCount, getDeletedPOCount } from '../../db/database';
 import { getStorageStats, cleanupOldPhotos } from '../../services/imageManager';
+import { getErrorLog, clearErrorLog, getErrorLogPath } from '../../services/errorLogger';
+import * as Sharing from 'expo-sharing';
 import { colors } from '../../constants/theme';
 import GlassInput from '../../components/ui/GlassInput';
 import PinInput from '../../components/PinInput';
@@ -128,6 +131,10 @@ export default function SettingsScreen() {
   const [storageSizeMB, setStorageSizeMB] = useState(0);
   const [storagePhotoCount, setStoragePhotoCount] = useState(0);
   const [cleaningStorage, setCleaningStorage] = useState(false);
+
+  // Error log
+  const [showErrorLog, setShowErrorLog] = useState(false);
+  const [errorLogText, setErrorLogText] = useState('');
 
   // Ollama
   const [ollamaUrl, setOllamaUrlState] = useState('');
@@ -623,7 +630,65 @@ export default function SettingsScreen() {
           <TouchableOpacity style={styles.clearBtn} onPress={handleClearDemoData}>
             <Text style={styles.clearBtnText}>Reset Demo Data</Text>
           </TouchableOpacity>
+
+          <View style={styles.divider} />
+
+          <NavRow
+            label="Error Log"
+            iconPath="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+            iconColor="rgba(255,255,255,0.4)"
+            onPress={async () => {
+              const log = await getErrorLog();
+              setErrorLogText(log);
+              setShowErrorLog(true);
+            }}
+          />
         </Section>
+
+        {/* Error Log Modal */}
+        {showErrorLog && (
+          <Modal visible animationType="slide" transparent onRequestClose={() => setShowErrorLog(false)}>
+            <View style={styles.modalOverlay}>
+              <View style={styles.errorLogSheet}>
+                <View style={styles.errorLogHeader}>
+                  <Text style={styles.errorLogTitle}>Error Log</Text>
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <TouchableOpacity
+                      style={styles.errorLogBtn}
+                      onPress={async () => {
+                        try {
+                          const canShare = await Sharing.isAvailableAsync();
+                          if (canShare) {
+                            await Sharing.shareAsync(getErrorLogPath(), { mimeType: 'text/plain', dialogTitle: 'VASTRA Error Log' });
+                          } else {
+                            Alert.alert('Error Log', errorLogText.slice(0, 800) || 'No errors logged');
+                          }
+                        } catch {}
+                      }}
+                    >
+                      <Text style={styles.errorLogBtnText}>Export</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.errorLogBtn, { borderColor: 'rgba(226,75,74,0.4)' }]}
+                      onPress={async () => {
+                        await clearErrorLog();
+                        setErrorLogText('No errors logged');
+                      }}
+                    >
+                      <Text style={[styles.errorLogBtnText, { color: colors.red }]}>Clear</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.errorLogBtn} onPress={() => setShowErrorLog(false)}>
+                      <Text style={styles.errorLogBtnText}>Close</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <ScrollView style={styles.errorLogBody} showsVerticalScrollIndicator>
+                  <Text style={styles.errorLogText}>{errorLogText || 'No errors logged'}</Text>
+                </ScrollView>
+              </View>
+            </View>
+          </Modal>
+        )}
 
         {/* ── About ─── */}
         <Section label="ABOUT">
@@ -1237,6 +1302,37 @@ const styles = StyleSheet.create({
   },
 
   // Storage
+  // Error log modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
+  errorLogSheet: {
+    backgroundColor: '#0d0d0d',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    maxHeight: '80%',
+    paddingBottom: 32,
+  },
+  errorLogHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  errorLogTitle: { fontSize: 16, fontWeight: '700', color: '#FFFFFF', fontFamily: 'Inter_700Bold' },
+  errorLogBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  errorLogBtnText: { fontSize: 12, color: 'rgba(255,255,255,0.6)', fontFamily: 'Inter_400Regular' },
+  errorLogBody: { paddingHorizontal: 20, paddingTop: 12, maxHeight: 500 },
+  errorLogText: { fontSize: 11, color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_400Regular', lineHeight: 18 },
+
   storageRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   storageInfo: { gap: 2 },
   storageSizeText: { fontSize: 22, fontWeight: '900', color: '#FFFFFF', fontFamily: 'Inter_900Black' },
