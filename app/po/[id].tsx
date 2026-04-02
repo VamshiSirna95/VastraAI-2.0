@@ -12,6 +12,7 @@ import {
   getPOById, updatePO, getLRByPO, getGRNByPO, getGRNsByPO, createGRN, getGRNPendingTotal,
   getPOPendingQty, updateGRNItem, softDeletePO, getVendorById,
   getVoiceNotes, createVoiceNote, deleteVoiceNote,
+  addCommunication,
 } from '../../db/database';
 import type { PurchaseOrder, POItem, LorryReceipt, GRNRecord, Vendor, VoiceNote } from '../../db/types';
 import VoiceNoteRecorder from '../../components/VoiceNoteRecorder';
@@ -301,6 +302,31 @@ export default function PODetailScreen() {
               <TouchableOpacity onPress={() => Linking.openURL(`tel:${vendor.phone}`)}>
                 <Text style={[styles.infoValue, { color: colors.blue }]}>{vendor.phone}</Text>
               </TouchableOpacity>
+            </View>
+          ) : null}
+          {/* Message Vendor quick-log */}
+          {vendor ? (
+            <View style={styles.msgVendorRow}>
+              {(['call', 'whatsapp', 'email'] as const).map((type) => (
+                <TouchableOpacity
+                  key={type}
+                  style={styles.msgVendorBtn}
+                  onPress={() => {
+                    Alert.prompt(
+                      `Log ${type.charAt(0).toUpperCase() + type.slice(1)}`,
+                      'Add a note (optional):',
+                      async (note) => {
+                        await addCommunication(po.vendor_id, po.id, type, 'outgoing', `Re: ${po.po_number}`, note ?? '');
+                        Alert.alert('Logged', `${type} logged for ${vendor.name}`);
+                      },
+                      'plain-text',
+                      '',
+                    );
+                  }}
+                >
+                  <Text style={styles.msgVendorBtnText}>{type}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
           ) : null}
           <InfoRow label="Created" value={new Date(po.created_at).toLocaleDateString('en-IN')} />
@@ -788,6 +814,16 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   infoLabel: { fontSize: 13, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular' },
   infoValue: { fontSize: 13, fontWeight: '600', color: '#FFFFFF', fontFamily: 'Inter_500Medium' },
+  msgVendorRow: { flexDirection: 'row', gap: 8, marginVertical: 8 },
+  msgVendorBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  msgVendorBtnText: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_700Bold', textTransform: 'capitalize' },
   notesBox: { marginTop: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: 10 },
   notesText: { fontSize: 13, color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_400Regular' },
   addNoteBtn: {

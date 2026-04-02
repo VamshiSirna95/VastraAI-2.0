@@ -2504,3 +2504,57 @@ export async function getAvgDailySalesFromData(productId: string): Promise<numbe
   );
   return row?.avg_daily ?? 0;
 }
+
+// ── Vendor Communications (V21) ───────────────────────────────────────────────
+
+export interface VendorCommunication {
+  id: number;
+  vendor_id: string;
+  vendor_name?: string;
+  po_id: string | null;
+  po_number?: string;
+  type: string;
+  direction: string;
+  subject: string | null;
+  content: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export async function addCommunication(
+  vendorId: string,
+  poId: string | null,
+  type: string,
+  direction: string,
+  subject: string,
+  content: string,
+  createdBy?: string
+): Promise<number> {
+  const result = await getDb().runAsync(
+    `INSERT INTO vendor_communications (vendor_id, po_id, type, direction, subject, content, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [vendorId, poId, type, direction, subject, content, createdBy ?? null]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function getCommunications(
+  vendorId?: string,
+  poId?: string
+): Promise<VendorCommunication[]> {
+  const conditions: string[] = [];
+  const params: (string | null)[] = [];
+  if (vendorId) { conditions.push('vc.vendor_id = ?'); params.push(vendorId); }
+  if (poId) { conditions.push('vc.po_id = ?'); params.push(poId); }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  return getDb().getAllAsync<VendorCommunication>(
+    `SELECT vc.*, v.name as vendor_name, po.po_number
+     FROM vendor_communications vc
+     LEFT JOIN vendors v ON v.id = vc.vendor_id
+     LEFT JOIN purchase_orders po ON po.id = vc.po_id
+     ${where}
+     ORDER BY vc.created_at DESC
+     LIMIT 100`,
+    params
+  );
+}

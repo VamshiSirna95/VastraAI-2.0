@@ -221,6 +221,7 @@ export default function HomeScreen() {
       accent: colors.pink,
       title: 'Similarity',
       patternType: 'blobs',
+      route: '/similarity',
       metrics: [
         { value: '24', label: 'Matches', color: colors.pink },
         { value: '₹48K', label: 'Saved', color: colors.teal },

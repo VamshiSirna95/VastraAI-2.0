@@ -11,6 +11,7 @@ import {
   getSeasonalPlan, getPlanItems, addPlanItem, updatePlanItem, deletePlanItem,
   updateSeasonalPlan, getVendors,
 } from '../../db/database';
+import { generatePlanPOs } from '../../services/refillEngine';
 import type { SeasonalPlan, SeasonalPlanItem } from '../../db/types';
 import type { Vendor } from '../../db/types';
 
@@ -276,6 +277,7 @@ export default function PlanScreen() {
   const [items, setItems] = useState<SeasonalPlanItem[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
+  const [generatingPOs, setGeneratingPOs] = useState(false);
 
   // Edit plan header
   const [editingBudget, setEditingBudget] = useState(false);
@@ -485,16 +487,45 @@ export default function PlanScreen() {
           </View>
         )}
 
-        {/* Generate POs placeholder */}
+        {/* Generate POs from Plan */}
         <TouchableOpacity
-          style={styles.genPOsBtn}
-          onPress={() => Alert.alert('Coming Soon', 'Auto-generating draft POs from seasonal plans is coming in the next sprint.')}
+          style={[styles.genPOsBtn, generatingPOs && { opacity: 0.6 }]}
+          onPress={async () => {
+            if (generatingPOs || !plan) return;
+            if (!items.length) {
+              Alert.alert('No Items', 'Add plan items with preferred vendors before generating POs.');
+              return;
+            }
+            setGeneratingPOs(true);
+            try {
+              const count = await generatePlanPOs(items, plan.season_name);
+              Alert.alert(
+                'POs Generated',
+                `${count} draft PO${count !== 1 ? 's' : ''} created for ${plan.season_name}.`,
+                [
+                  { text: 'Go to Orders', onPress: () => router.push('/orders') },
+                  { text: 'Stay Here', style: 'cancel' },
+                ],
+              );
+            } catch (e) {
+              Alert.alert('Error', 'Failed to generate POs. Check vendor assignments on plan items.');
+            } finally {
+              setGeneratingPOs(false);
+            }
+          }}
+          disabled={generatingPOs}
         >
-          <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-            <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke={colors.purple} strokeWidth={1.8} strokeLinejoin="round" />
-            <Path d="M14 2v6h6M12 18v-6M9 15h6" stroke={colors.purple} strokeWidth={1.8} strokeLinecap="round" />
-          </Svg>
-          <Text style={styles.genPOsBtnText}>Generate POs (Coming Soon)</Text>
+          {generatingPOs ? (
+            <ActivityIndicator size="small" color={colors.purple} />
+          ) : (
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+              <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke={colors.purple} strokeWidth={1.8} strokeLinejoin="round" />
+              <Path d="M14 2v6h6M12 18v-6M9 15h6" stroke={colors.purple} strokeWidth={1.8} strokeLinecap="round" />
+            </Svg>
+          )}
+          <Text style={styles.genPOsBtnText}>
+            {generatingPOs ? 'Generating POs…' : 'Generate POs from Plan'}
+          </Text>
         </TouchableOpacity>
 
         <View style={{ height: 40 }} />

@@ -1,12 +1,12 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
-import { getRefillSuggestions, type RefillSuggestion } from '../../services/refillEngine';
+import { getRefillSuggestions, generateRefillPO, type RefillSuggestion } from '../../services/refillEngine';
 
 function formatINR(val: number): string {
   if (val >= 100000) return `₹${(val / 100000).toFixed(1)}L`;
@@ -33,11 +33,18 @@ export default function RefillScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<FilterTab>('All');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [generating, setGenerating] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const data = await getRefillSuggestions();
       setSuggestions(data);
+      // Default: select all critical + soon
+      const defaultSelected = new Set(
+        data.filter(s => s.urgency === 'critical' || s.urgency === 'soon').map(s => s.productId)
+      );
+      setSelected(defaultSelected);
     } finally {
       setLoading(false);
     }
@@ -51,10 +58,38 @@ export default function RefillScreen() {
 
   useFocusEffect(useCallback(() => { setLoading(true); load(); }, [load]));
 
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleGeneratePOs = async () => {
+    const toGenerate = suggestions.filter(s => selected.has(s.productId));
+    if (toGenerate.length === 0) { Alert.alert('No Items Selected', 'Select at least one item to generate POs.'); return; }
+    const withVendor = toGenerate.filter(s => s.bestVendor);
+    if (withVendor.length === 0) { Alert.alert('No Vendors', 'None of the selected items have a known vendor from previous POs.'); return; }
+    setGenerating(true);
+    try {
+      const count = await generateRefillPO(withVendor);
+      Alert.alert('POs Created', `${count} draft PO${count !== 1 ? 's' : ''} created — review in the Orders tab.`, [
+        { text: 'Go to Orders', onPress: () => router.push('/(tabs)/orders' as never) },
+        { text: 'Stay Here', style: 'cancel' },
+      ]);
+    } catch (e) {
+      Alert.alert('Error', String(e));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const filtered = filter === 'All' ? suggestions : suggestions.filter(s => s.urgency === filter.toLowerCase());
   const critical = suggestions.filter(s => s.urgency === 'critical').length;
   const soon = suggestions.filter(s => s.urgency === 'soon').length;
   const totalValue = suggestions.reduce((sum, s) => sum + s.estimatedValue, 0);
+  const selectedCount = selected.size;
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -130,9 +165,13 @@ export default function RefillScreen() {
             filtered.map((s) => {
               const urgencyColor = URGENCY_COLOR[s.urgency];
               const vendorRankColor = s.bestVendor ? (RANK_COLOR[s.bestVendor.rank] ?? 'rgba(255,255,255,0.3)') : 'rgba(255,255,255,0.2)';
+              const isSelected = selected.has(s.productId);
               return (
-                <View key={s.productId} style={styles.card}>
+                <TouchableOpacity key={s.productId} style={[styles.card, isSelected && styles.cardSelected]} onPress={() => toggleSelect(s.productId)} activeOpacity={0.85}>
                   <View style={styles.cardHeader}>
+                    <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+                      {isSelected && <Text style={styles.checkmark}>✓</Text>}
+                    </View>
                     <View style={styles.cardHeaderBody}>
                       <Text style={styles.productName} numberOfLines={1}>{s.productName}</Text>
                       {s.garmentType ? <Text style={styles.garmentType}>{s.garmentType}</Text> : null}
@@ -183,11 +222,25 @@ export default function RefillScreen() {
                   >
                     <Text style={styles.createPOBtnText}>Create PO</Text>
                   </TouchableOpacity>
-                </View>
+                </TouchableOpacity>
               );
             })
           )}
-          <View style={{ height: 40 }} />
+
+          {suggestions.length > 0 && (
+            <TouchableOpacity
+              style={[styles.genPOsBtn, generating && { opacity: 0.5 }]}
+              onPress={handleGeneratePOs}
+              disabled={generating}
+            >
+              {generating ? <ActivityIndicator size="small" color="#000" /> : null}
+              <Text style={styles.genPOsBtnText}>
+                {generating ? 'Creating POs…' : `Generate POs for ${selectedCount} Selected`}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          <View style={{ height: 80 }} />
         </ScrollView>
       )}
     </SafeAreaView>
@@ -240,4 +293,20 @@ const styles = StyleSheet.create({
 
   createPOBtn: { backgroundColor: colors.teal, borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
   createPOBtnText: { fontSize: 13, fontWeight: '700', color: '#000000', fontFamily: 'Inter_700Bold' },
+
+  cardSelected: { borderColor: `${colors.teal}44`, backgroundColor: `${colors.teal}06` },
+  checkbox: {
+    width: 20, height: 20, borderRadius: 5, borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center',
+    marginRight: 4,
+  },
+  checkboxSelected: { backgroundColor: colors.teal, borderColor: colors.teal },
+  checkmark: { fontSize: 12, color: '#000', fontWeight: '800' },
+
+  genPOsBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: colors.teal, borderRadius: 14,
+    paddingVertical: 16, marginTop: 6,
+  },
+  genPOsBtnText: { fontSize: 15, fontWeight: '700', color: '#000000', fontFamily: 'Inter_700Bold' },
 });

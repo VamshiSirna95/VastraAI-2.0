@@ -627,36 +627,27 @@ export default function SettingsScreen() {
           <Text style={styles.brandCredit}>Built with The Architect</Text>
         </Section>
 
-        {/* ── Modules ─── */}
-        <Section label="MODULES">
+        {/* ── Procurement ─── */}
+        <Section label="PROCUREMENT">
           <NavRow
-            label="Stock Pool"
-            iconPath="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"
-            iconColor={colors.blue}
-            onPress={() => router.push('/stock' as never)}
+            label="Seasonal Planning"
+            iconPath="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
+            iconColor={colors.amber}
+            onPress={() => router.push('/seasonal' as never)}
           />
           <View style={styles.divider} />
           <NavRow
-            label="Customer Demands"
-            iconPath="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z"
-            iconColor={colors.purple}
-            onPress={() => router.push('/demand' as never)}
-          />
-          <View style={styles.divider} />
-          <NavRow
-            label="Notifications"
-            iconPath="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"
+            label="Refill Engine"
+            iconPath="M4 4h16v16H4zM4 12h16M12 4v16"
             iconColor={colors.teal}
-            badge={unreadNotifs > 0 ? String(unreadNotifs) : undefined}
-            badgeColor={colors.red}
-            onPress={() => router.push('/notifications' as never)}
+            onPress={() => router.push('/refill' as never)}
           />
           <View style={styles.divider} />
           <NavRow
-            label="Reports"
-            iconPath="M18 20V10M12 20V4M6 20v-6"
+            label="Purchase Trips"
+            iconPath="M3 21l1.9-5.7a8.5 8.5 0 113.8 3.8L3 21"
             iconColor={colors.purple}
-            onPress={() => router.push('/reports' as never)}
+            onPress={() => router.push('/trips' as never)}
           />
           {deletedPoCount > 0 && (
             <>
@@ -671,12 +662,15 @@ export default function SettingsScreen() {
               />
             </>
           )}
-          <View style={styles.divider} />
+        </Section>
+
+        {/* ── Warehouse ─── */}
+        <Section label="WAREHOUSE">
           <NavRow
-            label="Seasonal Planning"
-            iconPath="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
-            iconColor={colors.amber}
-            onPress={() => router.push('/seasonal' as never)}
+            label="Stock Pool"
+            iconPath="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"
+            iconColor={colors.blue}
+            onPress={() => router.push('/stock' as never)}
           />
           <View style={styles.divider} />
           <NavRow
@@ -685,7 +679,10 @@ export default function SettingsScreen() {
             iconColor={colors.teal}
             onPress={() => router.push('/stock/dispatch' as never)}
           />
-          <View style={styles.divider} />
+        </Section>
+
+        {/* ── Intelligence ─── */}
+        <Section label="INTELLIGENCE">
           <NavRow
             label="Pricing Intelligence"
             iconPath="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
@@ -708,10 +705,46 @@ export default function SettingsScreen() {
           />
           <View style={styles.divider} />
           <NavRow
+            label="Reports"
+            iconPath="M18 20V10M12 20V4M6 20v-6"
+            iconColor={colors.purple}
+            onPress={() => router.push('/reports' as never)}
+          />
+        </Section>
+
+        {/* ── People ─── */}
+        <Section label="PEOPLE">
+          <NavRow
+            label="Customer Demands"
+            iconPath="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z"
+            iconColor={colors.purple}
+            onPress={() => router.push('/demand' as never)}
+          />
+          <View style={styles.divider} />
+          <NavRow
+            label="Notifications"
+            iconPath="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"
+            iconColor={colors.teal}
+            badge={unreadNotifs > 0 ? String(unreadNotifs) : undefined}
+            badgeColor={colors.red}
+            onPress={() => router.push('/notifications' as never)}
+          />
+        </Section>
+
+        {/* ── Data ─── */}
+        <Section label="DATA">
+          <NavRow
             label="Export Center"
             iconPath="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
             iconColor={colors.amber}
             onPress={() => router.push('/exports' as never)}
+          />
+          <View style={styles.divider} />
+          <NavRow
+            label="Data Upload"
+            iconPath="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4-4 4M12 4v12"
+            iconColor={colors.teal}
+            onPress={() => router.push('/data/upload' as never)}
           />
         </Section>
 

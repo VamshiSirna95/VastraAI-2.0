@@ -78,3 +78,100 @@ export async function getRefillSuggestions(): Promise<RefillSuggestion[]> {
 
   return suggestions.sort((a, b) => a.stockCoverDays - b.stockCoverDays);
 }
+import { createPO, addPOItem } from '../db/database';
+
+async function getHistoricalSizeRatio(productId: string, totalQty: number): Promise<{
+  size_s: number; size_m: number; size_l: number; size_xl: number; size_xxl: number; size_free: number;
+}> {
+  const db = getDb();
+  const last = await db.getFirstAsync<{
+    size_s: number; size_m: number; size_l: number;
+    size_xl: number; size_xxl: number; size_free: number; total_qty: number;
+  }>(
+    `SELECT size_s, size_m, size_l, size_xl, size_xxl, size_free, total_qty
+     FROM po_items WHERE product_id = ? AND total_qty > 0
+     ORDER BY created_at DESC LIMIT 1`,
+    [productId]
+  );
+
+  if (last && last.total_qty > 0) {
+    const t = last.total_qty;
+    return {
+      size_s:   Math.round((last.size_s / t) * totalQty),
+      size_m:   Math.round((last.size_m / t) * totalQty),
+      size_l:   Math.round((last.size_l / t) * totalQty),
+      size_xl:  Math.round((last.size_xl / t) * totalQty),
+      size_xxl: Math.round((last.size_xxl / t) * totalQty),
+      size_free: Math.round((last.size_free / t) * totalQty),
+    };
+  }
+  // Default: equal split across S/M/L/XL
+  const each = Math.floor(totalQty / 4);
+  const rem = totalQty - each * 4;
+  return { size_s: each, size_m: each + rem, size_l: each, size_xl: each, size_xxl: 0, size_free: 0 };
+}
+
+export async function generateRefillPO(suggestions: RefillSuggestion[]): Promise<number> {
+  const byVendor: Record<string, RefillSuggestion[]> = {};
+  for (const s of suggestions) {
+    if (s.bestVendor) {
+      const vid = s.bestVendor.id;
+      if (!byVendor[vid]) byVendor[vid] = [];
+      byVendor[vid].push(s);
+    }
+  }
+
+  let poCount = 0;
+  for (const [vendorId, items] of Object.entries(byVendor)) {
+    const poId = await createPO({
+      vendor_id: vendorId,
+      status: 'draft',
+      notes: `Auto-generated refill PO for ${items.length} item${items.length > 1 ? 's' : ''}`,
+    });
+
+    for (const item of items) {
+      const sizes = await getHistoricalSizeRatio(item.productId, Math.round(item.suggestedQty));
+      const unitPrice = item.suggestedQty > 0 ? item.estimatedValue / item.suggestedQty : 0;
+      await addPOItem({
+        po_id: poId,
+        product_id: item.productId,
+        ...sizes,
+        unit_price: unitPrice,
+      });
+    }
+
+    poCount++;
+  }
+
+  return poCount;
+}
+
+export async function generatePlanPOs(
+  items: Array<{ category: string; target_qty?: number | null; target_value?: number | null; vendor_ids?: string | null }>,
+  planName: string
+): Promise<number> {
+  // Group by first selected vendor, or create one PO without vendor
+  const byVendor: Record<string, typeof items> = {};
+  for (const item of items) {
+    let vendorIds: string[] = [];
+    try { vendorIds = JSON.parse(item.vendor_ids ?? '[]') as string[]; } catch { vendorIds = []; }
+    const vid = vendorIds[0] ?? '__none__';
+    if (!byVendor[vid]) byVendor[vid] = [];
+    byVendor[vid].push(item);
+  }
+
+  let poCount = 0;
+  for (const [vendorId, planItems] of Object.entries(byVendor)) {
+    const totalQty = planItems.reduce((s, i) => s + (i.target_qty ?? 0), 0);
+    const totalValue = planItems.reduce((s, i) => s + (i.target_value ?? 0), 0);
+    const categories = planItems.map((i) => i.category).join(', ');
+    await createPO({
+      vendor_id: vendorId === '__none__' ? '' : vendorId,
+      status: 'draft',
+      notes: `${planName} plan — ${categories} — ${totalQty} pcs target · ₹${totalValue.toLocaleString('en-IN')}`,
+    });
+    poCount++;
+  }
+
+  return poCount;
+}

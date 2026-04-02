@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput, Alert, Linking,
+  Modal, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
@@ -9,7 +10,9 @@ import { colors } from '../../constants/theme';
 import {
   getVendorById, updateVendor, deactivateVendor, reactivateVendor,
   updateVendorStats, getPOs, calculateVendorRank,
+  addCommunication, getCommunications,
 } from '../../db/database';
+import type { VendorCommunication } from '../../db/database';
 import type { Vendor, PurchaseOrder } from '../../db/types';
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -27,6 +30,14 @@ const RANKS = ['S+', 'S', 'A', 'B', 'C', 'D', 'E'] as const;
 const RANK_COLOR: Record<string, string> = {
   'S+': '#9B72F2', S: '#5DCAA5', A: '#EF9F27', B: '#378ADD',
   C: 'rgba(255,255,255,0.4)', D: 'rgba(255,255,255,0.3)', E: 'rgba(255,255,255,0.2)',
+};
+
+const COMM_COLOR: Record<string, string> = {
+  call: colors.teal,
+  whatsapp: '#25D366',
+  email: colors.blue,
+  meeting: colors.amber,
+  note: 'rgba(255,255,255,0.4)',
 };
 
 const PO_STATUS_COLOR: Partial<Record<string, string>> = {
@@ -95,6 +106,15 @@ export default function VendorDetailScreen() {
   // Editable state mirrors vendor fields
   const [form, setForm] = useState<Partial<Vendor>>({});
 
+  // Communication log state
+  const [communications, setCommunications] = useState<VendorCommunication[]>([]);
+  const [showCommModal, setShowCommModal] = useState(false);
+  const [commType, setCommType] = useState('call');
+  const [commDirection, setCommDirection] = useState('outgoing');
+  const [commSubject, setCommSubject] = useState('');
+  const [commContent, setCommContent] = useState('');
+  const [savingComm, setSavingComm] = useState(false);
+
   const load = useCallback(async () => {
     if (!id) return;
     const v = await getVendorById(id);
@@ -107,6 +127,8 @@ export default function VendorDetailScreen() {
     setRecentPOs(pos.slice(0, 5));
     const sc = await calculateVendorRank(id);
     setScoreData(sc);
+    const comms = await getCommunications(id);
+    setCommunications(comms);
   }, [id]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -410,6 +432,118 @@ export default function VendorDetailScreen() {
           </View>
         )}
 
+        {/* Communication Log */}
+        <View style={styles.section}>
+          <View style={styles.commHeader}>
+            <Text style={styles.sectionLabel}>COMMUNICATION LOG</Text>
+            <TouchableOpacity style={styles.logCommBtn} onPress={() => setShowCommModal(true)}>
+              <Text style={styles.logCommBtnText}>+ Log</Text>
+            </TouchableOpacity>
+          </View>
+          {communications.length === 0 ? (
+            <Text style={styles.emptySection}>No communications logged yet</Text>
+          ) : (
+            communications.slice(0, 10).map((c) => (
+              <View key={c.id} style={styles.commRow}>
+                <View style={[styles.commTypeDot, { backgroundColor: COMM_COLOR[c.type] ?? 'rgba(255,255,255,0.2)' }]} />
+                <View style={styles.commBody}>
+                  <View style={styles.commTopRow}>
+                    <Text style={styles.commTypeLabel}>{c.type.toUpperCase()}</Text>
+                    <Text style={styles.commDir}>{c.direction}</Text>
+                    <Text style={styles.commDate}>{c.created_at.slice(0, 10)}</Text>
+                  </View>
+                  {c.subject ? <Text style={styles.commSubject}>{c.subject}</Text> : null}
+                  {c.content ? <Text style={styles.commContent} numberOfLines={2}>{c.content}</Text> : null}
+                  {c.po_number ? <Text style={styles.commPO}>PO: {c.po_number}</Text> : null}
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+
+        {/* Log Communication Modal */}
+        <Modal visible={showCommModal} transparent animationType="slide" onRequestClose={() => setShowCommModal(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalSheet}>
+              <Text style={styles.modalTitle}>Log Communication</Text>
+
+              <Text style={styles.modalFieldLabel}>TYPE</Text>
+              <View style={styles.chipRow}>
+                {['call', 'whatsapp', 'email', 'meeting', 'note'].map((t) => (
+                  <TouchableOpacity
+                    key={t}
+                    style={[styles.typeChip, commType === t && { backgroundColor: hexToRgba(COMM_COLOR[t] ?? colors.teal, 0.2), borderColor: COMM_COLOR[t] ?? colors.teal }]}
+                    onPress={() => setCommType(t)}
+                  >
+                    <Text style={[styles.typeChipText, commType === t && { color: COMM_COLOR[t] ?? colors.teal }]}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.modalFieldLabel}>DIRECTION</Text>
+              <View style={styles.chipRow}>
+                {['outgoing', 'incoming'].map((d) => (
+                  <TouchableOpacity
+                    key={d}
+                    style={[styles.typeChip, commDirection === d && { backgroundColor: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.3)' }]}
+                    onPress={() => setCommDirection(d)}
+                  >
+                    <Text style={[styles.typeChipText, commDirection === d && { color: '#FFFFFF' }]}>{d}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.modalFieldLabel}>SUBJECT (optional)</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={commSubject}
+                onChangeText={setCommSubject}
+                placeholder="Brief subject…"
+                placeholderTextColor="rgba(255,255,255,0.15)"
+              />
+
+              <Text style={styles.modalFieldLabel}>NOTES</Text>
+              <TextInput
+                style={[styles.modalInput, { minHeight: 80, textAlignVertical: 'top' }]}
+                value={commContent}
+                onChangeText={setCommContent}
+                placeholder="What was discussed…"
+                placeholderTextColor="rgba(255,255,255,0.15)"
+                multiline
+              />
+
+              <View style={styles.modalBtns}>
+                <TouchableOpacity style={styles.modalCancel} onPress={() => setShowCommModal(false)}>
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalSave, savingComm && { opacity: 0.5 }]}
+                  disabled={savingComm}
+                  onPress={async () => {
+                    setSavingComm(true);
+                    try {
+                      await addCommunication(id!, null, commType, commDirection, commSubject, commContent);
+                      setCommSubject('');
+                      setCommContent('');
+                      setCommType('call');
+                      setCommDirection('outgoing');
+                      setShowCommModal(false);
+                      const comms = await getCommunications(id!);
+                      setCommunications(comms);
+                    } catch (e) {
+                      Alert.alert('Error', String(e));
+                    } finally {
+                      setSavingComm(false);
+                    }
+                  }}
+                >
+                  {savingComm ? <ActivityIndicator size="small" color="#000" /> : <Text style={styles.modalSaveText}>Save</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         {/* Save / Deactivate buttons */}
         <View style={styles.bottomBtns}>
           {editing && (
@@ -567,6 +701,60 @@ const styles = StyleSheet.create({
   poValue: { fontSize: 12, color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_400Regular' },
   poStatusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   poStatusText: { fontSize: 11, fontWeight: '700', fontFamily: 'Inter_700Bold' },
+
+  commHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  logCommBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 7, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  logCommBtnText: { fontSize: 12, color: colors.teal, fontFamily: 'Inter_700Bold' },
+  commRow: { flexDirection: 'row', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)' },
+  commTypeDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5 },
+  commBody: { flex: 1 },
+  commTopRow: { flexDirection: 'row', gap: 6, alignItems: 'center', marginBottom: 2 },
+  commTypeLabel: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter_700Bold', letterSpacing: 0.5 },
+  commDir: { fontSize: 10, color: 'rgba(255,255,255,0.25)', fontFamily: 'Inter_400Regular' },
+  commDate: { flex: 1, fontSize: 10, color: 'rgba(255,255,255,0.2)', fontFamily: 'Inter_400Regular', textAlign: 'right' },
+  commSubject: { fontSize: 13, color: '#FFFFFF', fontFamily: 'Inter_500Medium', marginBottom: 2 },
+  commContent: { fontSize: 12, color: 'rgba(255,255,255,0.45)', fontFamily: 'Inter_400Regular', lineHeight: 17 },
+  commPO: { fontSize: 11, color: colors.amber, fontFamily: 'Inter_400Regular', marginTop: 3 },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  modalSheet: {
+    backgroundColor: '#111111',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 36,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  modalTitle: { fontSize: 17, fontWeight: '800', color: '#FFFFFF', fontFamily: 'Inter_800ExtraBold', marginBottom: 18 },
+  modalFieldLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1.5, color: 'rgba(255,255,255,0.3)', fontFamily: 'Inter_700Bold', marginBottom: 6 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
+  typeChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  typeChipText: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_700Bold', textTransform: 'capitalize' },
+  modalInput: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#FFFFFF',
+    fontFamily: 'Inter_400Regular',
+    marginBottom: 14,
+  },
+  modalBtns: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  modalCancel: { flex: 1, paddingVertical: 13, borderRadius: 11, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', alignItems: 'center' },
+  modalCancelText: { fontSize: 14, color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_400Regular' },
+  modalSave: { flex: 1, paddingVertical: 13, borderRadius: 11, backgroundColor: colors.teal, alignItems: 'center' },
+  modalSaveText: { fontSize: 14, fontWeight: '700', color: '#000', fontFamily: 'Inter_700Bold' },
 
   bottomBtns: { marginHorizontal: 20, gap: 10 },
   saveBtn: {

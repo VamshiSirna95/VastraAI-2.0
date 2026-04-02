@@ -435,4 +435,17 @@ export const CREATE_TABLES = [
     is_active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now'))
   )`,
+
+  // Vendor Communications — log calls, WhatsApp, emails, meetings
+  `CREATE TABLE IF NOT EXISTS vendor_communications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vendor_id TEXT NOT NULL REFERENCES vendors(id),
+    po_id TEXT REFERENCES purchase_orders(id),
+    type TEXT NOT NULL,
+    direction TEXT DEFAULT 'outgoing',
+    subject TEXT,
+    content TEXT,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
 ];
