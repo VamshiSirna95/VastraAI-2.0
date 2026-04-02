@@ -1,5 +1,5 @@
 import * as ImageManipulator from 'expo-image-manipulator';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import { getDb } from '../db/database';
 
 export async function compressImage(uri: string, maxWidth: number = 1200): Promise<string> {

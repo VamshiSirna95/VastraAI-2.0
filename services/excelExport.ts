@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import type { POSummaryReport, GRNSummaryReport, TripBudgetReport } from '../db/database';
 import { getDb } from '../db/database';

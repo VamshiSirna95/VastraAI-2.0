@@ -51,6 +51,7 @@ export default function OnboardingScreen() {
   const [pin2, setPin2] = useState('');
   const [pinStep, setPinStep] = useState<'set' | 'confirm'>('set');
   const [pinError, setPinError] = useState('');
+  const [currentPin, setCurrentPin] = useState('');
 
   // Page 4 — Stores
   const [stores, setStores] = useState<string[]>([...SEED_STORES]);
@@ -85,6 +86,7 @@ export default function OnboardingScreen() {
     if (pinStep === 'set') {
       setPin1(val);
       setPin2('');
+      setCurrentPin('');
       setPinStep('confirm');
       setPinError('');
     } else {
@@ -92,10 +94,12 @@ export default function OnboardingScreen() {
         setPinError('PINs do not match — try again');
         setPin1('');
         setPin2('');
+        setCurrentPin('');
         setPinStep('set');
       } else {
         setPinError('');
         setPin2(val);
+        setCurrentPin('');
       }
     }
   };
@@ -287,8 +291,8 @@ export default function OnboardingScreen() {
                 )}
                 {(!pin1 || (pin1 && !pin2)) && (
                   <PinInput
-                    value={pinStep === 'set' ? '' : ''}
-                    onChange={() => {}}
+                    value={currentPin}
+                    onChange={setCurrentPin}
                     onComplete={handlePinComplete}
                     error={!!pinError}
                   />

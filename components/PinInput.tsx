@@ -26,7 +26,7 @@ export default function PinInput({ value, onChange, onComplete, error }: PinInpu
 
   useEffect(() => {
     if (error) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); } catch {}
       Animated.sequence([
         Animated.timing(shakeAnim, { toValue: 10, duration: 60, useNativeDriver: true }),
         Animated.timing(shakeAnim, { toValue: -10, duration: 60, useNativeDriver: true }),
@@ -40,12 +40,12 @@ export default function PinInput({ value, onChange, onComplete, error }: PinInpu
   const handleKey = (key: string) => {
     if (key === '') return;
     if (key === '⌫') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
       onChange(value.slice(0, -1));
       return;
     }
     if (value.length >= 4) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
     const next = value + key;
     onChange(next);
     if (next.length === 4) onComplete(next);

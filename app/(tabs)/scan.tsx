@@ -12,7 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { CameraView, useCameraPermissions, type CameraView as CameraViewType } from 'expo-camera';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import { hexToRgba } from '../../components/ModuleCard';

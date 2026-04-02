@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 
 const LOG_FILE = `${FileSystem.documentDirectory ?? ''}error_log.txt`;
 const MAX_ENTRIES = 100;

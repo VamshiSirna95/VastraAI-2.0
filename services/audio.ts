@@ -1,5 +1,5 @@
 import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 
 async function ensureVoiceNotesDir(): Promise<string> {
   const dir = `${FileSystem.documentDirectory}voicenotes/`;
