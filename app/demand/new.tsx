@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import * as ImagePicker from 'expo-image-picker';
+import { compressImage } from '../../services/imageManager';
 import { colors } from '../../constants/theme';
 import * as Haptics from 'expo-haptics';
 import { createDemand, getStores } from '../../db/database';
@@ -42,7 +43,7 @@ export default function NewDemandScreen() {
       allowsEditing: true,
     });
     if (!result.canceled && result.assets[0]) {
-      setPhotoUri(result.assets[0].uri);
+      setPhotoUri(await compressImage(result.assets[0].uri));
     }
   };
 
@@ -51,7 +52,7 @@ export default function NewDemandScreen() {
     if (!perm.granted) { Alert.alert('Permission needed', 'Camera access is required.'); return; }
     const result = await ImagePicker.launchCameraAsync({ quality: 0.7, allowsEditing: true });
     if (!result.canceled && result.assets[0]) {
-      setPhotoUri(result.assets[0].uri);
+      setPhotoUri(await compressImage(result.assets[0].uri));
     }
   };
 

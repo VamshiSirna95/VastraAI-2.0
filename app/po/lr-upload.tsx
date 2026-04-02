@@ -5,6 +5,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { compressImage } from '../../services/imageManager';
 import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import { createLR, getPOById } from '../../db/database';
@@ -54,7 +55,7 @@ export default function LRUploadScreen() {
             allowsEditing: true,
           });
           if (!result.canceled && result.assets[0]) {
-            setPhotoUri(result.assets[0].uri);
+            setPhotoUri(await compressImage(result.assets[0].uri));
           }
         },
       },
@@ -67,7 +68,7 @@ export default function LRUploadScreen() {
             allowsEditing: true,
           });
           if (!result.canceled && result.assets[0]) {
-            setPhotoUri(result.assets[0].uri);
+            setPhotoUri(await compressImage(result.assets[0].uri));
           }
         },
       },

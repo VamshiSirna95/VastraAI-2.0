@@ -18,6 +18,7 @@ import { colors } from '../../constants/theme';
 import { hexToRgba } from '../../components/ModuleCard';
 import { createProduct, addProductPhoto, getProductByBarcode } from '../../db/database';
 import { detectAttributes, type AIDetectionResult } from '../../services/ai';
+import { compressImage } from '../../services/imageManager';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -405,6 +406,7 @@ export default function ScanScreen() {
     setAnalyzing(true);
     setDetectedAttrs([]);
     try {
+      const compressed = await compressImage(photoUri);
       const dir = await ensureDir();
       const photoType = MODE_PHOTO_TYPE[activeMode];
 
@@ -413,7 +415,7 @@ export default function ScanScreen() {
         // Adding photo to existing product
         productId = existingProductId;
         const destUri = `${dir}${productId}_${photoType}_${Date.now()}.jpg`;
-        await FileSystem.copyAsync({ from: photoUri, to: destUri });
+        await FileSystem.copyAsync({ from: compressed, to: destUri });
         await addProductPhoto(productId, destUri, photoType, false);
         setAnalyzing(false);
         router.back();
@@ -423,7 +425,7 @@ export default function ScanScreen() {
       // New product flow
       productId = await createProduct({ status: 'draft' });
       const destUri = `${dir}${productId}_${photoType}.jpg`;
-      await FileSystem.copyAsync({ from: photoUri, to: destUri });
+      await FileSystem.copyAsync({ from: compressed, to: destUri });
       await addProductPhoto(productId, destUri, photoType, true);
 
       // Tag mode → tag entry screen
@@ -472,10 +474,11 @@ export default function ScanScreen() {
 
   const processBatchCapture = async (photoUri: string) => {
     try {
+      const compressed = await compressImage(photoUri);
       const dir = await ensureDir();
       const productId = await createProduct({ status: 'draft' });
       const destUri = `${dir}${productId}_main.jpg`;
-      await FileSystem.copyAsync({ from: photoUri, to: destUri });
+      await FileSystem.copyAsync({ from: compressed, to: destUri });
       await addProductPhoto(productId, destUri, 'main', true);
 
       // Fire-and-forget AI detection

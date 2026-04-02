@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { compressImage } from '../../services/imageManager';
 import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import {
@@ -228,9 +229,10 @@ export default function GRNScreen() {
         onPress: async () => {
           const result = await ImagePicker.launchCameraAsync({ mediaTypes: 'images', quality: 0.8 });
           if (!result.canceled && result.assets[0]) {
-            await addGRNPhoto(item.id, result.assets[0].uri, 'received');
+            const uri = await compressImage(result.assets[0].uri);
+            await addGRNPhoto(item.id, uri, 'received');
             await load();
-            void runGeminiComparison(item, result.assets[0].uri);
+            void runGeminiComparison(item, uri);
           }
         },
       },
@@ -239,9 +241,10 @@ export default function GRNScreen() {
         onPress: async () => {
           const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: 'images', quality: 0.8 });
           if (!result.canceled && result.assets[0]) {
-            await addGRNPhoto(item.id, result.assets[0].uri, 'received');
+            const uri = await compressImage(result.assets[0].uri);
+            await addGRNPhoto(item.id, uri, 'received');
             await load();
-            void runGeminiComparison(item, result.assets[0].uri);
+            void runGeminiComparison(item, uri);
           }
         },
       },

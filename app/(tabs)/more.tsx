@@ -19,6 +19,7 @@ import {
 } from '../../services/geminiAI';
 import { getCurrentUser, logout } from '../../services/auth';
 import { getProductCount, getVendors, getStores, getDb, verifyPin, updateUserPin, getUnreadCount, getDeletedPOCount } from '../../db/database';
+import { getStorageStats, cleanupOldPhotos } from '../../services/imageManager';
 import { colors } from '../../constants/theme';
 import GlassInput from '../../components/ui/GlassInput';
 import PinInput from '../../components/PinInput';
@@ -124,6 +125,9 @@ export default function SettingsScreen() {
   const [storeCount, setStoreCount] = useState(0);
   const [unreadNotifs, setUnreadNotifs] = useState(0);
   const [deletedPoCount, setDeletedPoCount] = useState(0);
+  const [storageSizeMB, setStorageSizeMB] = useState(0);
+  const [storagePhotoCount, setStoragePhotoCount] = useState(0);
+  const [cleaningStorage, setCleaningStorage] = useState(false);
 
   // Ollama
   const [ollamaUrl, setOllamaUrlState] = useState('');
@@ -161,6 +165,13 @@ export default function SettingsScreen() {
       ]);
       setUnreadNotifs(unread);
       setDeletedPoCount(deletedPOs);
+
+      // Load storage stats in background (non-blocking)
+      getStorageStats().then((stats) => {
+        setStorageSizeMB(stats.totalSizeMB);
+        setStoragePhotoCount(stats.totalPhotos);
+      }).catch(() => {});
+
       if (session) {
         setUserName(session.name);
         setUserRole(session.role);
@@ -748,6 +759,38 @@ export default function SettingsScreen() {
           />
         </Section>
 
+        {/* ── Storage ─── */}
+        <Section label="STORAGE">
+          <View style={styles.storageRow}>
+            <View style={styles.storageInfo}>
+              <Text style={styles.storageSizeText}>{storageSizeMB} MB</Text>
+              <Text style={styles.storageSubText}>{storagePhotoCount} photos on device</Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.cleanBtn, cleaningStorage && { opacity: 0.5 }]}
+              disabled={cleaningStorage}
+              onPress={async () => {
+                setCleaningStorage(true);
+                try {
+                  const cleaned = await cleanupOldPhotos(90);
+                  const newStats = await getStorageStats();
+                  setStorageSizeMB(newStats.totalSizeMB);
+                  setStoragePhotoCount(newStats.totalPhotos);
+                  Alert.alert('Cleaned', `Removed ${cleaned} old evidence photo${cleaned !== 1 ? 's' : ''}`);
+                } catch (e) {
+                  Alert.alert('Error', String(e));
+                } finally {
+                  setCleaningStorage(false);
+                }
+              }}
+            >
+              {cleaningStorage
+                ? <ActivityIndicator size="small" color={colors.teal} />
+                : <Text style={styles.cleanBtnText}>Clean Old Evidence</Text>}
+            </TouchableOpacity>
+          </View>
+        </Section>
+
         {/* ── Logout ─── */}
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
           <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
@@ -1192,6 +1235,23 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.5)',
     fontFamily: 'Inter_700Bold',
   },
+
+  // Storage
+  storageRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  storageInfo: { gap: 2 },
+  storageSizeText: { fontSize: 22, fontWeight: '900', color: '#FFFFFF', fontFamily: 'Inter_900Black' },
+  storageSubText: { fontSize: 12, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular' },
+  cleanBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: `${colors.teal}44`,
+    backgroundColor: `${colors.teal}12`,
+    minWidth: 60,
+    alignItems: 'center',
+  },
+  cleanBtnText: { fontSize: 12, fontWeight: '700', color: colors.teal, fontFamily: 'Inter_700Bold' },
 
   // Logout
   logoutBtn: {
