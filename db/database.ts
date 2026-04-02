@@ -185,6 +185,30 @@ export async function getProducts(filters?: ProductFilters): Promise<Product[]> 
   return rows;
 }
 
+export async function getProductsPaginated(
+  offset: number,
+  limit: number = 20,
+  search?: string
+): Promise<Product[]> {
+  const db = getDb();
+  if (search) {
+    const q = `%${search}%`;
+    return db.getAllAsync<Product>(
+      `SELECT p.*, v.name as vendor_name FROM products p
+       LEFT JOIN vendors v ON p.vendor_id = v.id
+       WHERE (LOWER(p.design_name) LIKE LOWER(?) OR LOWER(p.barcode) LIKE LOWER(?) OR LOWER(p.garment_type) LIKE LOWER(?))
+       ORDER BY p.updated_at DESC LIMIT ? OFFSET ?`,
+      [q, q, q, limit, offset]
+    );
+  }
+  return db.getAllAsync<Product>(
+    `SELECT p.*, v.name as vendor_name FROM products p
+     LEFT JOIN vendors v ON p.vendor_id = v.id
+     ORDER BY p.updated_at DESC LIMIT ? OFFSET ?`,
+    [limit, offset]
+  );
+}
+
 export async function getProductById(id: string): Promise<Product | null> {
   const db = getDb();
   const product = await db.getFirstAsync<Product>(
@@ -1451,30 +1475,24 @@ export interface DashboardData {
 export async function getDashboardData(): Promise<DashboardData> {
   const db = getDb();
 
-  // Active POs
-  const poRow = await db.getFirstAsync<{ count: number }>(
-    `SELECT COUNT(*) as count FROM purchase_orders WHERE is_deleted = 0 AND status NOT IN ('closed')`
+  // Combine scalar counts into a single query
+  const statsRow = await db.getFirstAsync<{
+    activePOs: number;
+    pendingGRN: number;
+    totalVendors: number;
+    monthValue: number;
+  }>(
+    `SELECT
+      (SELECT COUNT(*) FROM purchase_orders WHERE is_deleted = 0 AND status NOT IN ('closed')) as activePOs,
+      (SELECT COUNT(*) FROM grn_items WHERE status = 'pending') as pendingGRN,
+      (SELECT COUNT(*) FROM vendors WHERE is_active = 1) as totalVendors,
+      (SELECT COALESCE(SUM(total_value),0) FROM purchase_orders
+       WHERE is_deleted = 0 AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')) as monthValue`
   );
-  const activePOs = poRow?.count ?? 0;
-
-  // Pending GRN items
-  const grnRow = await db.getFirstAsync<{ count: number }>(
-    `SELECT COUNT(*) as count FROM grn_items WHERE status = 'pending'`
-  );
-  const pendingGRN = grnRow?.count ?? 0;
-
-  // Total active vendors
-  const vRow = await db.getFirstAsync<{ count: number }>(
-    `SELECT COUNT(*) as count FROM vendors WHERE is_active = 1`
-  );
-  const totalVendors = vRow?.count ?? 0;
-
-  // Current month PO value
-  const monthRow = await db.getFirstAsync<{ val: number }>(
-    `SELECT COALESCE(SUM(total_value),0) as val FROM purchase_orders
-     WHERE is_deleted = 0 AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')`
-  );
-  const monthValue = monthRow?.val ?? 0;
+  const activePOs = statsRow?.activePOs ?? 0;
+  const pendingGRN = statsRow?.pendingGRN ?? 0;
+  const totalVendors = statsRow?.totalVendors ?? 0;
+  const monthValue = statsRow?.monthValue ?? 0;
 
   // Monthly PO value trend — last 6 months
   const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

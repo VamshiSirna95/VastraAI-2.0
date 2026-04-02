@@ -448,4 +448,46 @@ export const CREATE_TABLES = [
     created_by TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   )`,
+
+  // ── Indexes ────────────────────────────────────────────────────────────────
+  `CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)`,
+  `CREATE INDEX IF NOT EXISTS idx_products_garment_type ON products(garment_type)`,
+  `CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_po_status ON purchase_orders(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_po_vendor_id ON purchase_orders(vendor_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_po_is_deleted ON purchase_orders(is_deleted)`,
+  `CREATE INDEX IF NOT EXISTS idx_po_created_at ON purchase_orders(created_at)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_po_items_po_id ON po_items(po_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_po_items_product_id ON po_items(product_id)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_grn_po_id ON grn_records(po_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_grn_status ON grn_records(overall_status)`,
+  `CREATE INDEX IF NOT EXISTS idx_grn_items_grn_id ON grn_items(grn_id)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_vendors_active ON vendors(is_active)`,
+  `CREATE INDEX IF NOT EXISTS idx_vendors_rating ON vendors(rating)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_store_stock_store ON store_stock(store_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_store_stock_product ON store_stock(product_id)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_sales_product ON sales_data(product_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_sales_store ON sales_data(store_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_sales_date ON sales_data(sale_date)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(is_read)`,
+  `CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_demands_status ON customer_demands(status)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_voice_notes_po ON voice_notes(po_id)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_competition_product ON competition_prices(product_id)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_lr_po ON lorry_receipts(po_id)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_transfers_status ON stock_transfers(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_transfers_from ON stock_transfers(from_store_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_transfers_to ON stock_transfers(to_store_id)`,
 ];

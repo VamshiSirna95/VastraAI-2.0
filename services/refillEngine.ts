@@ -1,4 +1,4 @@
-import { getDb, getAvgDailySalesFromData } from '../db/database';
+import { getDb, getAvgDailySalesFromData, createPO, addPOItem } from '../db/database';
 
 export interface RefillSuggestion {
   productId: string;
@@ -22,7 +22,23 @@ function rankFromScore(score: number): string {
   return 'E';
 }
 
+let refillCache: { data: RefillSuggestion[]; timestamp: number } | null = null;
+const REFILL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+export function invalidateRefillCache(): void {
+  refillCache = null;
+}
+
 export async function getRefillSuggestions(): Promise<RefillSuggestion[]> {
+  if (refillCache && Date.now() - refillCache.timestamp < REFILL_CACHE_TTL) {
+    return refillCache.data;
+  }
+  const data = await _computeRefillSuggestions();
+  refillCache = { data, timestamp: Date.now() };
+  return data;
+}
+
+async function _computeRefillSuggestions(): Promise<RefillSuggestion[]> {
   const db = getDb();
 
   const products = await db.getAllAsync<{
@@ -78,7 +94,6 @@ export async function getRefillSuggestions(): Promise<RefillSuggestion[]> {
 
   return suggestions.sort((a, b) => a.stockCoverDays - b.stockCoverDays);
 }
-import { createPO, addPOItem } from '../db/database';
 
 async function getHistoricalSizeRatio(productId: string, totalQty: number): Promise<{
   size_s: number; size_m: number; size_l: number; size_xl: number; size_xxl: number; size_free: number;
