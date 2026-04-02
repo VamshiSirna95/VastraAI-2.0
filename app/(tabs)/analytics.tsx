@@ -5,8 +5,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { colors } from '../../constants/theme';
-import { getAnalyticsData } from '../../db/database';
+import {
+  getAnalyticsData, getTopColors, getTopPatterns, getStorePerformance,
+} from '../../db/database';
 import type { AnalyticsData } from '../../db/types';
+import type { ColorStat, PatternStat, StoreSalesStat } from '../../db/database';
 
 // ── Date range helpers ────────────────────────────────────────────────────────
 
@@ -166,13 +169,24 @@ export default function AnalyticsScreen() {
   const [range, setRange] = useState<RangeKey>('3M');
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [topColors, setTopColors] = useState<ColorStat[]>([]);
+  const [topPatterns, setTopPatterns] = useState<PatternStat[]>([]);
+  const [storeStats, setStoreStats] = useState<StoreSalesStat[]>([]);
 
   const load = useCallback(async (r: RangeKey) => {
     setLoading(true);
     try {
       const { from, to } = getDateRange(r);
-      const result = await getAnalyticsData(from, to);
+      const [result, clrs, ptns, stores] = await Promise.all([
+        getAnalyticsData(from, to),
+        getTopColors(30),
+        getTopPatterns(30),
+        getStorePerformance(30),
+      ]);
       setData(result);
+      setTopColors(clrs);
+      setTopPatterns(ptns);
+      setStoreStats(stores);
     } finally {
       setLoading(false);
     }
@@ -361,6 +375,76 @@ export default function AnalyticsScreen() {
                 })}
               </View>
             )}
+
+            {/* Color Intelligence */}
+            <View style={styles.glassCard}>
+              <Text style={styles.sectionLabel}>COLOR INTELLIGENCE</Text>
+              {topColors.length === 0 ? (
+                <Text style={styles.emptyText}>No sales data yet. Import sales to see color trends.</Text>
+              ) : (
+                <>
+                  <Text style={styles.subSectionLabel}>TOP SELLING COLORS (30d)</Text>
+                  {topColors.slice(0, 5).map((c, i) => (
+                    <View key={i} style={styles.intelRow}>
+                      <View style={[styles.colorDot, { backgroundColor: c.primary_color?.toLowerCase() ?? '#888' }]} />
+                      <Text style={styles.intelName} numberOfLines={1}>{c.primary_color || 'Unknown'}</Text>
+                      <Text style={styles.intelQty}>{c.total_sold} pcs</Text>
+                      <Text style={styles.intelValue}>{formatINR(c.revenue)}</Text>
+                    </View>
+                  ))}
+                </>
+              )}
+            </View>
+
+            {/* Pattern & Fabric Intelligence */}
+            <View style={styles.glassCard}>
+              <Text style={styles.sectionLabel}>PATTERN INTELLIGENCE</Text>
+              {topPatterns.length === 0 ? (
+                <Text style={styles.emptyText}>No sales data yet. Import sales to see pattern trends.</Text>
+              ) : (
+                <>
+                  <Text style={styles.subSectionLabel}>TOP PATTERNS (30d)</Text>
+                  {topPatterns.slice(0, 6).map((p, i) => {
+                    const maxSold = Math.max(...topPatterns.map((x) => x.total_sold), 1);
+                    const pct = Math.round((p.total_sold / maxSold) * 100);
+                    return (
+                      <View key={i} style={styles.patternRow}>
+                        <Text style={styles.patternName} numberOfLines={1}>{p.pattern || 'Unknown'}</Text>
+                        <View style={styles.barBg}>
+                          <View style={[styles.barFill, { width: `${pct}%`, backgroundColor: colors.purple }]} />
+                        </View>
+                        <Text style={styles.patternQty}>{p.total_sold}</Text>
+                      </View>
+                    );
+                  })}
+                </>
+              )}
+            </View>
+
+            {/* Store Performance */}
+            <View style={styles.glassCard}>
+              <Text style={styles.sectionLabel}>STORE PERFORMANCE (30d)</Text>
+              {storeStats.length === 0 ? (
+                <Text style={styles.emptyText}>No stores found. Add stores to track performance.</Text>
+              ) : (
+                storeStats.map((s, i) => {
+                  const health = s.sold > 0 ? 'healthy' : s.current_stock > 0 ? 'watch' : 'idle';
+                  const healthColor = health === 'healthy' ? colors.teal : health === 'watch' ? colors.amber : 'rgba(255,255,255,0.3)';
+                  const healthLabel = health === 'healthy' ? '🟢' : health === 'watch' ? '🟡' : '🔴';
+                  return (
+                    <View key={i} style={styles.storeRow}>
+                      <View style={styles.storeLeft}>
+                        <Text style={styles.storeName} numberOfLines={1}>{s.store_name}</Text>
+                        <Text style={styles.storeMeta}>
+                          {s.sold} sold · {formatINR(s.revenue)} · {s.current_stock} in stock
+                        </Text>
+                      </View>
+                      <Text style={styles.storeHealth}>{healthLabel}</Text>
+                    </View>
+                  );
+                })
+              )}
+            </View>
           </>
         ) : null}
 
@@ -593,6 +677,102 @@ const styles = StyleSheet.create({
     color: colors.purple,
     fontFamily: 'Inter_700Bold',
   },
+
+  subSectionLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.2)',
+    fontFamily: 'Inter_700Bold',
+    marginBottom: 10,
+    marginTop: 4,
+  },
+
+  // Color intelligence
+  intelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  colorDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  intelName: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    fontFamily: 'Inter_700Bold',
+  },
+  intelQty: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+    fontFamily: 'Inter_400Regular',
+    width: 52,
+    textAlign: 'right',
+  },
+  intelValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.teal,
+    fontFamily: 'Inter_700Bold',
+    width: 60,
+    textAlign: 'right',
+  },
+
+  // Pattern rows
+  patternRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  patternName: {
+    width: 90,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.7)',
+    fontFamily: 'Inter_400Regular',
+  },
+  patternQty: {
+    width: 36,
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.purple,
+    fontFamily: 'Inter_700Bold',
+    textAlign: 'right',
+  },
+
+  // Store performance
+  storeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.04)',
+    gap: 10,
+  },
+  storeLeft: { flex: 1 },
+  storeName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: 'Inter_700Bold',
+    marginBottom: 2,
+  },
+  storeMeta: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.35)',
+    fontFamily: 'Inter_400Regular',
+  },
+  storeHealth: { fontSize: 18 },
 
   // Trip budget
   tripRow: {

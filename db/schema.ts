@@ -396,4 +396,43 @@ export const CREATE_TABLES = [
     received_by TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   )`,
+
+  // Sales Data — imported from Ginesys or other POS systems
+  `CREATE TABLE IF NOT EXISTS sales_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id TEXT REFERENCES products(id),
+    store_id INTEGER REFERENCES stores(id),
+    barcode TEXT,
+    product_name TEXT,
+    qty_sold INTEGER NOT NULL DEFAULT 0,
+    sale_value REAL NOT NULL DEFAULT 0,
+    sale_date TEXT NOT NULL,
+    upload_batch TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
+
+  // Data Uploads — history of imported files
+  `CREATE TABLE IF NOT EXISTS data_uploads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT NOT NULL,
+    upload_type TEXT NOT NULL DEFAULT 'sales',
+    row_count INTEGER,
+    matched_count INTEGER,
+    unmatched_count INTEGER,
+    status TEXT DEFAULT 'processing',
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
+
+  // Product Offers — markdown / promotion records
+  `CREATE TABLE IF NOT EXISTS product_offers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id TEXT REFERENCES products(id),
+    offer_type TEXT NOT NULL,
+    offer_value REAL,
+    start_date TEXT,
+    end_date TEXT,
+    reason TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
 ];

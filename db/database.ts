@@ -55,6 +55,7 @@ async function runMigrations(): Promise<void> {
   await addCol('products', 'ai_detected', 'INTEGER DEFAULT 0');
   await addCol('products', 'ai_overrides', 'TEXT');
   // V17: competition_prices and dispatch_notes are created via CREATE TABLE IF NOT EXISTS above
+  // V20: sales_data, data_uploads, product_offers are created via CREATE TABLE IF NOT EXISTS above
 }
 
 export function getDb(): SQLite.SQLiteDatabase {
@@ -2255,4 +2256,251 @@ export async function getNextDispatchSeq(yyyymm: string): Promise<number> {
     [`KMF/DN/${yyyymm}/%`]
   );
   return (row?.cnt ?? 0) + 1;
+}
+
+// ── Sales Data (V20) ──────────────────────────────────────────────────────────
+
+export interface SalesRow {
+  productId: string | null;
+  storeId: number | null;
+  barcode: string;
+  productName: string;
+  qtySold: number;
+  saleValue: number;
+  saleDate: string;
+}
+
+export interface DataUpload {
+  id: number;
+  filename: string;
+  upload_type: string;
+  row_count: number | null;
+  matched_count: number | null;
+  unmatched_count: number | null;
+  status: string;
+  created_at: string;
+}
+
+export async function insertSalesRows(rows: SalesRow[], batchId: string): Promise<void> {
+  const db = getDb();
+  for (const r of rows) {
+    await db.runAsync(
+      `INSERT INTO sales_data (product_id, store_id, barcode, product_name, qty_sold, sale_value, sale_date, upload_batch)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [r.productId, r.storeId, r.barcode, r.productName, r.qtySold, r.saleValue, r.saleDate, batchId]
+    );
+  }
+}
+
+export async function createDataUpload(
+  filename: string,
+  rowCount: number,
+  matchedCount: number,
+  unmatchedCount: number
+): Promise<number> {
+  const db = getDb();
+  const result = await db.runAsync(
+    `INSERT INTO data_uploads (filename, upload_type, row_count, matched_count, unmatched_count, status)
+     VALUES (?, 'sales', ?, ?, ?, 'complete')`,
+    [filename, rowCount, matchedCount, unmatchedCount]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function getDataUploads(): Promise<DataUpload[]> {
+  return getDb().getAllAsync<DataUpload>(
+    `SELECT * FROM data_uploads ORDER BY created_at DESC LIMIT 50`
+  );
+}
+
+// Match product by barcode (sync-safe wrapper using async)
+export async function matchProductByBarcode(barcode: string): Promise<string | null> {
+  if (!barcode) return null;
+  const row = await getDb().getFirstAsync<{ id: string }>(
+    `SELECT id FROM products WHERE barcode = ?`, [barcode]
+  );
+  return row?.id ?? null;
+}
+
+export async function matchProductByName(name: string): Promise<string | null> {
+  if (!name) return null;
+  const row = await getDb().getFirstAsync<{ id: string }>(
+    `SELECT id FROM products WHERE LOWER(design_name) LIKE LOWER(?)`, [`%${name}%`]
+  );
+  return row?.id ?? null;
+}
+
+export async function matchStoreByName(name: string): Promise<number | null> {
+  if (!name) return null;
+  const row = await getDb().getFirstAsync<{ id: number }>(
+    `SELECT id FROM stores WHERE LOWER(name) LIKE LOWER(?) OR LOWER(code) LIKE LOWER(?)`,
+    [`%${name}%`, `%${name}%`]
+  );
+  return row?.id ?? null;
+}
+
+// ── Product Offers (V20) ──────────────────────────────────────────────────────
+
+export interface ProductOffer {
+  id: number;
+  product_id: string | null;
+  product_name?: string;
+  offer_type: string;
+  offer_value: number | null;
+  start_date: string | null;
+  end_date: string | null;
+  reason: string | null;
+  is_active: number;
+  created_at: string;
+}
+
+export async function createProductOffer(
+  productId: string,
+  offerType: string,
+  offerValue: number,
+  startDate: string,
+  endDate: string,
+  reason: string
+): Promise<number> {
+  const result = await getDb().runAsync(
+    `INSERT INTO product_offers (product_id, offer_type, offer_value, start_date, end_date, reason, is_active)
+     VALUES (?, ?, ?, ?, ?, ?, 1)`,
+    [productId, offerType, offerValue, startDate, endDate, reason]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function getActiveOffers(): Promise<ProductOffer[]> {
+  return getDb().getAllAsync<ProductOffer>(
+    `SELECT po.*, p.design_name as product_name
+     FROM product_offers po
+     LEFT JOIN products p ON p.id = po.product_id
+     WHERE po.is_active = 1 AND (po.end_date IS NULL OR po.end_date >= date('now'))
+     ORDER BY po.created_at DESC`
+  );
+}
+
+export async function endProductOffer(id: number): Promise<void> {
+  await getDb().runAsync(`UPDATE product_offers SET is_active = 0 WHERE id = ?`, [id]);
+}
+
+// ── Sales Analytics (V20) ─────────────────────────────────────────────────────
+
+export interface ColorStat {
+  primary_color: string;
+  total_sold: number;
+  revenue: number;
+}
+
+export interface PatternStat {
+  pattern: string;
+  total_sold: number;
+  revenue: number;
+}
+
+export interface StoreSalesStat {
+  store_name: string;
+  sold: number;
+  revenue: number;
+  current_stock: number;
+}
+
+export interface MarkdownCandidate {
+  product_id: string;
+  design_name: string;
+  garment_type: string | null;
+  days_in_stock: number;
+  current_stock: number;
+  total_sold: number;
+  sell_through_pct: number;
+  selling_price: number | null;
+}
+
+export async function getTopColors(days = 30): Promise<ColorStat[]> {
+  return getDb().getAllAsync<ColorStat>(
+    `SELECT p.primary_color, SUM(s.qty_sold) as total_sold, SUM(s.sale_value) as revenue
+     FROM sales_data s JOIN products p ON p.id = s.product_id
+     WHERE s.sale_date >= date('now', ?)
+     GROUP BY p.primary_color
+     ORDER BY total_sold DESC LIMIT 10`,
+    [`-${days} days`]
+  );
+}
+
+export async function getTopPatterns(days = 30): Promise<PatternStat[]> {
+  return getDb().getAllAsync<PatternStat>(
+    `SELECT p.pattern, SUM(s.qty_sold) as total_sold, SUM(s.sale_value) as revenue
+     FROM sales_data s JOIN products p ON p.id = s.product_id
+     WHERE p.pattern IS NOT NULL AND p.pattern != ''
+       AND s.sale_date >= date('now', ?)
+     GROUP BY p.pattern
+     ORDER BY total_sold DESC LIMIT 10`,
+    [`-${days} days`]
+  );
+}
+
+export async function getStorePerformance(days = 30): Promise<StoreSalesStat[]> {
+  return getDb().getAllAsync<StoreSalesStat>(
+    `SELECT st.name as store_name,
+       COALESCE(SUM(s.qty_sold), 0) as sold,
+       COALESCE(SUM(s.sale_value), 0) as revenue,
+       COALESCE(SUM(ss.total_qty), 0) as current_stock
+     FROM stores st
+     LEFT JOIN sales_data s ON s.store_id = st.id AND s.sale_date >= date('now', ?)
+     LEFT JOIN store_stock ss ON ss.store_id = st.id
+     WHERE st.is_active = 1
+     GROUP BY st.id
+     ORDER BY sold DESC`,
+    [`-${days} days`]
+  );
+}
+
+export async function getMarkdownCandidates(): Promise<MarkdownCandidate[]> {
+  return getDb().getAllAsync<MarkdownCandidate>(
+    `SELECT p.id as product_id, p.design_name, p.garment_type,
+       CAST(julianday('now') - julianday(p.created_at) AS INTEGER) as days_in_stock,
+       COALESCE(SUM(ss.total_qty), 0) as current_stock,
+       COALESCE((SELECT SUM(qty_sold) FROM sales_data WHERE product_id = p.id), 0) as total_sold,
+       COALESCE((SELECT SUM(qty_sold)*100.0 / NULLIF(SUM(qty_sold) + SUM(ss2.total_qty),0)
+                 FROM sales_data sd2 LEFT JOIN store_stock ss2 ON ss2.product_id = p.id
+                 WHERE sd2.product_id = p.id), 0) as sell_through_pct,
+       p.selling_price
+     FROM products p
+     LEFT JOIN store_stock ss ON ss.product_id = p.id
+     WHERE CAST(julianday('now') - julianday(p.created_at) AS INTEGER) > 90
+       AND (SELECT COUNT(*) FROM sales_data WHERE product_id = p.id) >= 0
+     GROUP BY p.id
+     HAVING sell_through_pct < 10 AND current_stock > 0
+     ORDER BY days_in_stock DESC
+     LIMIT 20`
+  );
+}
+
+export async function getUpcomingFestivals(): Promise<Array<{ season_name: string; start_date: string; days_away: number }>> {
+  return getDb().getAllAsync(
+    `SELECT season_name, start_date,
+       CAST(julianday(start_date) - julianday('now') AS INTEGER) as days_away
+     FROM seasonal_plans
+     WHERE start_date >= date('now') AND start_date <= date('now', '+30 days')
+       AND status != 'completed'
+     ORDER BY start_date ASC`
+  );
+}
+
+export async function getCompetitorOverpricedCount(): Promise<number> {
+  const row = await getDb().getFirstAsync<{ cnt: number }>(
+    `SELECT COUNT(DISTINCT product_id) as cnt FROM competition_prices
+     WHERE competitor_price < our_selling_price`
+  );
+  return row?.cnt ?? 0;
+}
+
+export async function getAvgDailySalesFromData(productId: string): Promise<number> {
+  const row = await getDb().getFirstAsync<{ avg_daily: number }>(
+    `SELECT COALESCE(SUM(qty_sold) * 1.0 / NULLIF(COUNT(DISTINCT sale_date), 0), 0) as avg_daily
+     FROM sales_data
+     WHERE product_id = ? AND sale_date >= date('now', '-30 days')`,
+    [productId]
+  );
+  return row?.avg_daily ?? 0;
 }

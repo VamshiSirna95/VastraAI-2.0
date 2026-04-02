@@ -1,4 +1,4 @@
-import { getDb } from '../db/database';
+import { getDb, getAvgDailySalesFromData } from '../db/database';
 
 export interface RefillSuggestion {
   productId: string;
@@ -46,7 +46,8 @@ export async function getRefillSuggestions(): Promise<RefillSuggestion[]> {
 
   for (const p of products) {
     const totalStock = p.total_stock;
-    const avgDailySales = Math.max(1, Math.round(totalStock / 30));
+    const salesAvg = await getAvgDailySalesFromData(p.id);
+    const avgDailySales = salesAvg > 0 ? salesAvg : Math.max(1, Math.round(totalStock / 30));
     const stockCover = totalStock > 0 ? Math.round(totalStock / avgDailySales) : 0;
     const urgency: RefillSuggestion['urgency'] = stockCover < 7 ? 'critical' : stockCover < 14 ? 'soon' : 'plan';
     const suggestedQty = Math.max(10, (30 - stockCover) * avgDailySales);

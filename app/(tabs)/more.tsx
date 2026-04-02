@@ -585,6 +585,15 @@ export default function SettingsScreen() {
 
         {/* ── Data Management ─── */}
         <Section label="DATA MANAGEMENT">
+          <NavRow
+            label="Import Data"
+            iconPath="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"
+            iconColor={colors.teal}
+            onPress={() => router.push('/data/upload' as never)}
+          />
+
+          <View style={styles.divider} />
+
           <TouchableOpacity
             style={styles.actionRow}
             onPress={() => router.push('/po/deleted' as never)}
@@ -675,6 +684,13 @@ export default function SettingsScreen() {
             iconPath="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0zM12 7v5l3 3"
             iconColor={colors.teal}
             onPress={() => router.push('/stock/dispatch' as never)}
+          />
+          <View style={styles.divider} />
+          <NavRow
+            label="Pricing Intelligence"
+            iconPath="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            iconColor={colors.amber}
+            onPress={() => router.push('/pricing' as never)}
           />
           <View style={styles.divider} />
           <NavRow
