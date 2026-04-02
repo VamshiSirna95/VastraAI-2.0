@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
@@ -48,8 +49,9 @@ export default function TagEntryScreen() {
   };
 
   return (
+    <SafeAreaView style={styles.root} edges={['top']}>
     <KeyboardAvoidingView
-      style={styles.root}
+      style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
@@ -140,6 +142,7 @@ export default function TagEntryScreen() {
 
       </ScrollView>
     </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 

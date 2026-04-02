@@ -1,4 +1,6 @@
-import { Tabs } from 'expo-router';
+import { useEffect, useRef } from 'react';
+import { BackHandler, ToastAndroid, Platform } from 'react-native';
+import { Tabs, useSegments } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 
@@ -83,6 +85,27 @@ function MoreIcon({ color }: { color: string }) {
 }
 
 export default function TabsLayout() {
+  const segments = useSegments();
+  const backPressedRef = useRef(false);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const handler = BackHandler.addEventListener('hardwareBackPress', () => {
+      // Only intercept when on the home tab (root of the tab stack)
+      const isAtRoot = segments.length === 1 && segments[0] === '(tabs)';
+      if (!isAtRoot) return false;
+      if (backPressedRef.current) {
+        BackHandler.exitApp();
+        return true;
+      }
+      backPressedRef.current = true;
+      ToastAndroid.show('Press back again to exit', ToastAndroid.SHORT);
+      setTimeout(() => { backPressedRef.current = false; }, 2000);
+      return true;
+    });
+    return () => handler.remove();
+  }, [segments]);
+
   return (
     <Tabs
       screenOptions={{

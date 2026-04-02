@@ -54,7 +54,7 @@ export async function tryOllamaDetection(
 
   // Read image as base64
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const FileSystem = require('expo-file-system') as {
+  const FileSystem = require('expo-file-system/legacy') as {
     readAsStringAsync: (uri: string, options: { encoding: string }) => Promise<string>;
   };
   const base64 = await FileSystem.readAsStringAsync(imageUri, {

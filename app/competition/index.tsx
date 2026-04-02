@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF', fontFamily: 'Inter_400Regular', fontSize: 14,
   },
   dropdown: {
-    marginTop: 4, backgroundColor: 'rgba(30,30,30,0.98)', borderWidth: 1,
+    marginTop: 4, backgroundColor: 'rgba(0,0,0,0.95)', borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)', borderRadius: 10, overflow: 'hidden',
   },
   dropdownItem: { padding: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },

@@ -98,7 +98,7 @@ export async function generateAutoNotifications(): Promise<void> {
   try {
     const any = await getDb().getFirstAsync<{id: number}>('SELECT id FROM notifications LIMIT 1');
     if (!any) {
-      await createNotification('system', 'Welcome to VASTRA', 'Your merchandise intelligence platform is ready. Start by scanning your first product!', null, null);
+      await createNotification('system', 'Welcome to VASTRA', 'Your merchandise intelligence platform is ready. Start by scanning your first product!', undefined, undefined);
     }
   } catch { /* skip */ }
 }

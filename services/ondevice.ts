@@ -5,7 +5,7 @@ export async function tryOnDeviceDetection(
 ): Promise<Omit<AIDetectionResult, 'source'> | null> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const FileSystem = require('expo-file-system') as {
+    const FileSystem = require('expo-file-system/legacy') as {
       getInfoAsync: (uri: string) => Promise<{ exists: boolean }>;
     };
     const info = await FileSystem.getInfoAsync(imageUri);

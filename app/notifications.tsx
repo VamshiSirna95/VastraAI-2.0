@@ -16,6 +16,8 @@ const TYPE_COLOR: Record<AppNotification['type'], string> = {
   demand_match: colors.blue,
   transfer: colors.purple,
   system: 'rgba(255,255,255,0.4)',
+  similarity: 'rgba(255,255,255,0.4)',
+  competition: 'rgba(255,255,255,0.4)',
 };
 
 const TYPE_ICON_PATH: Record<AppNotification['type'], string> = {
@@ -25,6 +27,8 @@ const TYPE_ICON_PATH: Record<AppNotification['type'], string> = {
   demand_match: 'M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z',
   transfer: 'M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4',
   system: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+  similarity: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+  competition: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
 };
 
 function timeAgo(dateStr: string): string {

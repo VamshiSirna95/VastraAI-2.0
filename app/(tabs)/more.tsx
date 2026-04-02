@@ -743,7 +743,7 @@ export default function SettingsScreen() {
             label="Purchase Trips"
             iconPath="M3 21l1.9-5.7a8.5 8.5 0 113.8 3.8L3 21"
             iconColor={colors.purple}
-            onPress={() => router.push('/trips' as never)}
+            onPress={() => router.push('/po/trips' as never)}
           />
           {deletedPoCount > 0 && (
             <>

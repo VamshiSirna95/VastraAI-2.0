@@ -44,7 +44,7 @@ export async function detectAttributes(imageUri: string): Promise<AIDetectionRes
         };
       }
     } catch (e) {
-      console.log('Gemini detection failed, falling back:', e);
+      console.error('Gemini detection failed, falling back:', e);
     }
     return null;
   };

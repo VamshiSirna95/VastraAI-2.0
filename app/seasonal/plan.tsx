@@ -503,7 +503,7 @@ export default function PlanScreen() {
                 'POs Generated',
                 `${count} draft PO${count !== 1 ? 's' : ''} created for ${plan.season_name}.`,
                 [
-                  { text: 'Go to Orders', onPress: () => router.push('/orders') },
+                  { text: 'Go to Orders', onPress: () => router.push('/(tabs)/orders' as never) },
                   { text: 'Stay Here', style: 'cancel' },
                 ],
               );

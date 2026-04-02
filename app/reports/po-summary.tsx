@@ -227,6 +227,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 1.5,
+    textTransform: 'uppercase',
     color: 'rgba(255,255,255,0.25)',
     fontFamily: 'Inter_700Bold',
     marginBottom: 4,
