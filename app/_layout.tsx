@@ -16,11 +16,14 @@ import { initDatabase, getUserCount } from '../db/database';
 import { seedDemoData } from '../db/seed';
 import { isLoggedIn } from '../services/auth';
 import { generateAutoNotifications } from '../services/notifications';
+import { cleanupOldPhotos } from '../services/imageManager';
 import AuroraBackground from '../components/AuroraBackground';
 import ErrorBoundary from '../components/ErrorBoundary';
 import OfflineNotice from '../components/OfflineNotice';
 
 SplashScreen.preventAutoHideAsync();
+
+const CLEANUP_KEY = 'last_photo_cleanup';
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000000' },
@@ -41,10 +44,13 @@ export default function RootLayout() {
   const segments = useSegments();
 
   useEffect(() => {
-    initDatabase()
-      .then(() => seedDemoData())
-      .then(() => generateAutoNotifications().catch(() => {}))
-      .then(async () => {
+    async function init() {
+      try {
+        // DB init and seed run sequentially (seed depends on DB)
+        await initDatabase();
+        await seedDemoData();
+
+        // Auth checks run in parallel (all depend on DB being ready)
         const [loggedIn, userCount, onboardingFlag] = await Promise.all([
           isLoggedIn(),
           getUserCount(),
@@ -55,13 +61,31 @@ export default function RootLayout() {
         setNeedsOnboarding(noUsers && notComplete);
         setAuthed(loggedIn);
         setDbReady(true);
-      })
-      .catch((err) => {
+
+        // Defer non-critical background work
+        setTimeout(() => {
+          generateAutoNotifications().catch(() => {});
+        }, 3000);
+
+        // Run photo cleanup once per day
+        setTimeout(async () => {
+          try {
+            const lastCleanup = await AsyncStorage.getItem(CLEANUP_KEY);
+            const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+            if (!lastCleanup || parseInt(lastCleanup, 10) < oneDayAgo) {
+              await cleanupOldPhotos(90);
+              await AsyncStorage.setItem(CLEANUP_KEY, String(Date.now()));
+            }
+          } catch { /* non-critical */ }
+        }, 5000);
+      } catch (err) {
         console.error('DB init failed:', err);
         setNeedsOnboarding(false);
         setAuthed(false);
         setDbReady(true);
-      });
+      }
+    }
+    init();
   }, []);
 
   useEffect(() => {
