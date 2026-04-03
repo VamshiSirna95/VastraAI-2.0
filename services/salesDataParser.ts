@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import * as XLSX from 'xlsx';
 import { matchProductByBarcode, matchProductByName, matchStoreByName } from '../db/database';
 import type { SalesRow } from '../db/database';
