@@ -114,6 +114,10 @@ export default function VendorsScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  const renderVendorItem = useCallback(({ item }: { item: Vendor }) => (
+    <VendorCard vendor={item} onPress={() => router.push(`/vendors/${item.id}`)} />
+  ), [router]);
+
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       {/* Header */}
@@ -191,9 +195,7 @@ export default function VendorsScreen() {
       {!loading && !error && <FlatList
         data={vendors}
         keyExtractor={(v) => v.id}
-        renderItem={useCallback(({ item }: { item: typeof vendors[0] }) => (
-          <VendorCard vendor={item} onPress={() => router.push(`/vendors/${item.id}`)} />
-        ), [router])}
+        renderItem={renderVendorItem}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
         removeClippedSubviews
