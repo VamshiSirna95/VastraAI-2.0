@@ -19,7 +19,7 @@ export async function initDatabase(): Promise<void> {
   await seedDeliveryConfig();
 }
 
-const CURRENT_DB_VERSION = 21;
+const CURRENT_DB_VERSION = 22;
 
 async function addCol(table: string, col: string, def: string): Promise<void> {
   try { await getDb().execAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`); } catch { /* already exists */ }
@@ -81,6 +81,18 @@ async function runMigrations(): Promise<void> {
     // V17+ tables created via CREATE TABLE IF NOT EXISTS — no ALTER needed
     // V20+ tables created via CREATE TABLE IF NOT EXISTS — no ALTER needed
     // V21: vendor_communications created via CREATE TABLE IF NOT EXISTS
+  }
+
+  // ── V22: ensure all table columns exist for fresh + upgraded installs ────
+  if (currentVersion < 22) {
+    // stores table columns
+    await addCol('stores', 'name', "TEXT NOT NULL DEFAULT 'Store'");
+    await addCol('stores', 'code', "TEXT DEFAULT ''");
+    await addCol('stores', 'address', 'TEXT');
+    await addCol('stores', 'city', 'TEXT');
+    await addCol('stores', 'manager_name', 'TEXT');
+    await addCol('stores', 'manager_phone', 'TEXT');
+    await addCol('stores', 'is_active', 'INTEGER DEFAULT 1');
   }
 
   // Store new version

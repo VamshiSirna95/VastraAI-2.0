@@ -41,7 +41,19 @@ export default function RootLayout() {
   useEffect(() => {
     async function init() {
       try {
-        await initDatabase();
+        try {
+          await initDatabase();
+        } catch (dbErr) {
+          console.error('DB init failed, resetting database:', dbErr);
+          const FileSystem = await import('expo-file-system');
+          const dbPath = FileSystem.documentDirectory + 'SQLite/vastra.db';
+          try { await FileSystem.deleteAsync(dbPath, { idempotent: true }); } catch {}
+          const walPath = dbPath + '-wal';
+          const shmPath = dbPath + '-shm';
+          try { await FileSystem.deleteAsync(walPath, { idempotent: true }); } catch {}
+          try { await FileSystem.deleteAsync(shmPath, { idempotent: true }); } catch {}
+          await initDatabase();
+        }
         await seedDemoData();
         setDbReady(true);
 
