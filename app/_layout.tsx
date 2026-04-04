@@ -12,7 +12,7 @@ import {
   Inter_900Black,
 } from '@expo-google-fonts/inter';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { initDatabase } from '../db/database';
+import { initDatabase, destroyDatabase } from '../db/database';
 import { seedDemoData } from '../db/seed';
 import { generateAutoNotifications } from '../services/notifications';
 import { cleanupOldPhotos } from '../services/imageManager';
@@ -45,13 +45,7 @@ export default function RootLayout() {
           await initDatabase();
         } catch (dbErr) {
           console.error('DB init failed, resetting database:', dbErr);
-          const FileSystem = await import('expo-file-system');
-          const dbPath = FileSystem.documentDirectory + 'SQLite/vastra.db';
-          try { await FileSystem.deleteAsync(dbPath, { idempotent: true }); } catch {}
-          const walPath = dbPath + '-wal';
-          const shmPath = dbPath + '-shm';
-          try { await FileSystem.deleteAsync(walPath, { idempotent: true }); } catch {}
-          try { await FileSystem.deleteAsync(shmPath, { idempotent: true }); } catch {}
+          await destroyDatabase();
           await initDatabase();
         }
         await seedDemoData();

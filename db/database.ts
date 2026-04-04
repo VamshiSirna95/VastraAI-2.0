@@ -19,6 +19,20 @@ export async function initDatabase(): Promise<void> {
   await seedDeliveryConfig();
 }
 
+export async function closeDatabase(): Promise<void> {
+  if (_db) {
+    try { await _db.closeAsync(); } catch {}
+    _db = null;
+  }
+}
+
+export async function destroyDatabase(): Promise<void> {
+  await closeDatabase();
+  try {
+    await SQLite.deleteDatabaseAsync('vastra.db');
+  } catch {}
+}
+
 const CURRENT_DB_VERSION = 22;
 
 async function addCol(table: string, col: string, def: string): Promise<void> {
@@ -86,7 +100,7 @@ async function runMigrations(): Promise<void> {
   // ── V22: ensure all table columns exist for fresh + upgraded installs ────
   if (currentVersion < 22) {
     // stores table columns
-    await addCol('stores', 'name', "TEXT NOT NULL DEFAULT 'Store'");
+    await addCol('stores', 'name', "TEXT DEFAULT 'Store'");
     await addCol('stores', 'code', "TEXT DEFAULT ''");
     await addCol('stores', 'address', 'TEXT');
     await addCol('stores', 'city', 'TEXT');
