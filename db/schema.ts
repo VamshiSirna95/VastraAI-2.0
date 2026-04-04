@@ -458,7 +458,7 @@ export const CREATE_TABLES = [
   // ── Indexes ────────────────────────────────────────────────────────────────
   `CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)`,
   `CREATE INDEX IF NOT EXISTS idx_products_garment_type ON products(garment_type)`,
-  `CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)`,
+  `CREATE INDEX IF NOT EXISTS idx_products_name ON products(design_name)`,
 
   `CREATE INDEX IF NOT EXISTS idx_po_status ON purchase_orders(status)`,
   `CREATE INDEX IF NOT EXISTS idx_po_vendor_id ON purchase_orders(vendor_id)`,
