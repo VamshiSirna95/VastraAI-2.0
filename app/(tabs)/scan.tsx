@@ -50,16 +50,6 @@ const MODE_HINT: Record<Mode, string> = {
 
 const MODES: Mode[] = ['Flat lay', 'Tag', 'Detail', 'Batch'];
 
-// ── Static data ───────────────────────────────────────────────────────────────
-
-const ATTR_PILLS = [
-  { label: 'Kurta',      color: colors.teal },
-  { label: 'Maroon',     color: colors.red },
-  { label: 'Paisley',    color: colors.purple },
-  { label: 'Cotton',     color: colors.pink },
-  { label: '3/4 sleeve', color: colors.blue },
-] as const;
-
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
 function FlashOffIcon({ color }: { color: string }) {
@@ -151,19 +141,33 @@ function CornerBracket({ pos, color }: { pos: CornerPos; color: string }) {
 
 // ── Detection float ───────────────────────────────────────────────────────────
 
-function DetectionFloat({ pulseAnim }: { pulseAnim: Animated.Value }) {
+function DetectionFloat({ pulseAnim, detection }: { pulseAnim: Animated.Value; detection: AIDetectionResult | null }) {
+  const pills: { label: string; color: string }[] = [];
+  if (detection && detection.confidence > 0) {
+    if (detection.garment_type) pills.push({ label: detection.garment_type, color: colors.teal });
+    if (detection.primary_color) pills.push({ label: detection.primary_color, color: colors.red });
+    if (detection.pattern) pills.push({ label: detection.pattern, color: colors.purple });
+    if (detection.fabric) pills.push({ label: detection.fabric, color: colors.pink });
+    if (detection.work_type) pills.push({ label: detection.work_type, color: colors.blue });
+    if (detection.occasion) pills.push({ label: detection.occasion, color: colors.amber });
+  }
+
   return (
     <View style={styles.detectionFloat}>
       <View style={styles.detectionHeader}>
         <Animated.View style={[styles.pulseDot, { opacity: pulseAnim }]} />
-        <Text style={styles.detectionLabel}>AI detected</Text>
+        <Text style={styles.detectionLabel}>{pills.length > 0 ? 'AI detected' : 'Waiting for AI...'}</Text>
       </View>
       <View style={styles.pillsRow}>
-        {ATTR_PILLS.map((p) => (
+        {pills.length > 0 ? pills.map((p) => (
           <View key={p.label} style={[styles.attrPill, { backgroundColor: hexToRgba(p.color, 0.18) }]}>
             <Text style={styles.attrPillText}>{p.label}</Text>
           </View>
-        ))}
+        )) : (
+          <View style={[styles.attrPill, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
+            <Text style={styles.attrPillText}>Waiting for AI...</Text>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -265,6 +269,7 @@ export default function ScanScreen() {
   const [analyzing, setAnalyzing] = useState(false);
   const [detectedAttrs, setDetectedAttrs] = useState<string[]>([]);
   const [reviewPhoto, setReviewPhoto] = useState<string | null>(null);
+  const [liveDetection, setLiveDetection] = useState<AIDetectionResult | null>(null);
 
   // Batch mode state
   const [batchProducts, setBatchProducts] = useState<string[]>([]);
@@ -439,6 +444,7 @@ export default function ScanScreen() {
       }
 
       const result: AIDetectionResult = await detectAttributes(destUri);
+      setLiveDetection(result);
 
       const attrs: string[] = [];
       if (result.garment_type) attrs.push(result.garment_type);
@@ -482,7 +488,7 @@ export default function ScanScreen() {
       await addProductPhoto(productId, destUri, 'main', true);
 
       // Fire-and-forget AI detection
-      detectAttributes(destUri).catch(() => {});
+      detectAttributes(destUri).then(r => setLiveDetection(r)).catch(() => {});
 
       setBatchProducts((prev) => [...prev, productId]);
 
@@ -539,7 +545,7 @@ export default function ScanScreen() {
               return (
                 <TouchableOpacity
                   key={mode}
-                  onPress={() => setActiveMode(mode)}
+                  onPress={() => { setActiveMode(mode); setLiveDetection(null); }}
                   style={[styles.modePill, active && styles.modePillActive]}
                 >
                   <Text style={[styles.modePillText, active && styles.modePillTextActive]}>
@@ -570,7 +576,7 @@ export default function ScanScreen() {
               <CornerBracket pos="bl" color={frameColor} />
               <CornerBracket pos="br" color={frameColor} />
               <View style={styles.detectionFloatWrapper}>
-                <DetectionFloat pulseAnim={pulseAnim} />
+                <DetectionFloat pulseAnim={pulseAnim} detection={liveDetection} />
               </View>
             </View>
 
