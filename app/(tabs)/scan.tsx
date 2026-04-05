@@ -692,7 +692,7 @@ export default function ScanScreen() {
               </Text>
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={styles.bottomSideBtn}>
+            <TouchableOpacity style={styles.bottomSideBtn} onPress={handleGalleryPick}>
               <GalleryIcon color="rgba(255,255,255,0.4)" />
               <Text style={styles.bottomBtnLabel}>Gallery</Text>
             </TouchableOpacity>
