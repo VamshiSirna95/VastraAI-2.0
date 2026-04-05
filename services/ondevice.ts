@@ -21,6 +21,7 @@ export async function tryOnDeviceDetection(
       pattern: undefined,
       fabric: undefined,
       work_type: undefined,
+      status: 'success' as const,
     };
   } catch {
     return null;

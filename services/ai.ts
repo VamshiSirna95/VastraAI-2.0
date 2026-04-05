@@ -18,14 +18,25 @@ export interface AIDetectionResult {
   neck?: string;
   confidence: number;
   source: 'gemini' | 'ollama' | 'on-device' | 'manual';
+  status: 'success' | 'failed';
+  reason?: 'timeout' | 'error';
+  message?: string;
 }
 
-export async function detectAttributes(imageUri: string): Promise<AIDetectionResult> {
-  const [apiKey, priority] = await Promise.all([
-    getGeminiApiKey(),
-    getAIPriorityOrder(),
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('timeout')), ms)
+    ),
   ]);
+}
 
+async function runDetection(
+  imageUri: string,
+  apiKey: string | null,
+  priority: string,
+): Promise<AIDetectionResult> {
   const tryGemini = async (): Promise<AIDetectionResult | null> => {
     if (!apiKey) return null;
     try {
@@ -41,6 +52,7 @@ export async function detectAttributes(imageUri: string): Promise<AIDetectionRes
           occasion: r.occasion || undefined,
           confidence: r.confidence,
           source: 'gemini',
+          status: 'success',
         };
       }
     } catch (e) {
@@ -52,7 +64,7 @@ export async function detectAttributes(imageUri: string): Promise<AIDetectionRes
   const tryOllama = async (): Promise<AIDetectionResult | null> => {
     try {
       const r = await tryOllamaDetection(imageUri);
-      if (r) return { ...r, source: 'ollama' };
+      if (r) return { ...r, source: 'ollama', status: 'success' };
     } catch {}
     return null;
   };
@@ -63,7 +75,6 @@ export async function detectAttributes(imageUri: string): Promise<AIDetectionRes
     const geminiResult = await tryGemini();
     if (geminiResult) return geminiResult;
   } else {
-    // gemini_first (default)
     const geminiResult = await tryGemini();
     if (geminiResult) return geminiResult;
     const ollamaResult = await tryOllama();
@@ -72,8 +83,40 @@ export async function detectAttributes(imageUri: string): Promise<AIDetectionRes
 
   try {
     const onDeviceResult = await tryOnDeviceDetection(imageUri);
-    if (onDeviceResult) return { ...onDeviceResult, source: 'on-device' };
+    if (onDeviceResult) return { ...onDeviceResult, source: 'on-device', status: 'success' };
   } catch {}
 
-  return { confidence: 0, source: 'manual' };
+  return { confidence: 0, source: 'manual', status: 'success' };
+}
+
+export async function detectAttributes(imageUri: string): Promise<AIDetectionResult> {
+  const [apiKey, priority] = await Promise.all([
+    getGeminiApiKey(),
+    getAIPriorityOrder(),
+  ]);
+
+  const delays = [2000, 4000, 8000];
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      console.log(`AI detection attempt ${attempt}/3 for ${imageUri.split('/').pop() ?? imageUri}`);
+      const result = await withTimeout(runDetection(imageUri, apiKey, priority), 30000);
+      return result;
+    } catch (e) {
+      lastError = e;
+      if (attempt < 3) {
+        await new Promise((res) => setTimeout(res, delays[attempt - 1]));
+      }
+    }
+  }
+
+  const isTimeout = lastError instanceof Error && lastError.message === 'timeout';
+  return {
+    confidence: 0,
+    source: 'manual',
+    status: 'failed',
+    reason: isTimeout ? 'timeout' : 'error',
+    message: lastError instanceof Error ? lastError.message : 'AI detection failed after 3 attempts',
+  };
 }
