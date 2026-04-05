@@ -13,6 +13,7 @@ import {
 } from '../../db/database';
 import type { Product, ProductPhoto, PurchaseOrder } from '../../db/types';
 import { findSimilarProducts, type SimilarityMatch } from '../../services/similarityEngine';
+import { detectAttributes, type AIDetectionResult } from '../../services/ai';
 import { formatINR } from '../../utils/format';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -94,6 +95,8 @@ export default function ProductDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [selectedPhotoIdx, setSelectedPhotoIdx] = useState(0);
   const [similarMatches, setSimilarMatches] = useState<SimilarityMatch[]>([]);
+  const [rerunning, setRerunning] = useState(false);
+  const [rerunError, setRerunError] = useState(false);
 
   const hasAiParams = !!(
     params.ai_garment_type || params.ai_primary_color || params.ai_pattern || params.ai_fabric
@@ -148,6 +151,45 @@ export default function ProductDetailScreen() {
     }
   }, [id]);
 
+  const handleRerunDetection = useCallback(async () => {
+    if (!product || rerunning) return;
+    const mainPhoto = product.photos?.find((p) => p.is_primary) ?? product.photos?.[0];
+    if (!mainPhoto) {
+      Alert.alert('No photo', 'Add a photo first to run AI detection.');
+      return;
+    }
+    setRerunning(true);
+    setRerunError(false);
+    try {
+      const result = await detectAttributes(mainPhoto.uri);
+      if (result.status === 'failed') {
+        setRerunError(true);
+        Alert.alert('Detection failed', result.message ?? 'Could not detect attributes. Try again.');
+      } else {
+        await updateProduct(id, {
+          garment_type: result.garment_type,
+          primary_color: result.primary_color,
+          secondary_color: result.secondary_color,
+          pattern: result.pattern,
+          fabric: result.fabric,
+          work_type: result.work_type,
+          occasion: result.occasion,
+          sleeve: result.sleeve,
+          neck: result.neck,
+          ai_confidence: result.confidence,
+          ai_detected: 1,
+          ai_status: 'success',
+        });
+        await load();
+      }
+    } catch {
+      setRerunError(true);
+      Alert.alert('Detection failed', 'Could not detect attributes. Try again.');
+    } finally {
+      setRerunning(false);
+    }
+  }, [product, rerunning, id, load]);
+
   useFocusEffect(useCallback(() => { load(); }, [load]));
   useEffect(() => { load(); }, []);
 
@@ -174,7 +216,7 @@ export default function ProductDetailScreen() {
   const photos = product.photos ?? [];
   const mainPhoto = photos[selectedPhotoIdx] ?? photos.find((p) => p.is_primary) ?? photos[0];
   const statusCfg = STATUS_CFG[product.status] ?? { label: product.status, color: colors.amber };
-  const aiPct = product.ai_confidence ? Math.round(product.ai_confidence) : null;
+  const aiPct = product.ai_confidence ? Math.round(product.ai_confidence * 100) : null;
 
   const pp = product.purchase_price ?? 0;
   const sp = product.selling_price ?? 0;
@@ -316,6 +358,28 @@ export default function ProductDetailScreen() {
           {!!product.season && <View style={styles.divider} />}
           <AttrRow label="Season" value={product.season ?? ''} />
         </View>
+
+        {/* ── Re-run AI Detection ── */}
+        {product.ai_status !== 'manual' && !product.garment_type && (
+          <View style={styles.rerunCard}>
+            <TouchableOpacity
+              style={[styles.rerunBtn, rerunning && { opacity: 0.6 }]}
+              onPress={handleRerunDetection}
+              disabled={rerunning}
+            >
+              {rerunning ? (
+                <>
+                  <ActivityIndicator size="small" color={colors.teal} />
+                  <Text style={styles.rerunBtnText}>Detecting...</Text>
+                </>
+              ) : (
+                <Text style={styles.rerunBtnText}>
+                  {rerunError ? 'Detection failed — try again' : 'Re-run AI Detection'}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* ── C. Pricing ── */}
         <View style={styles.glassCard}>
@@ -640,4 +704,25 @@ const styles = StyleSheet.create({
   simScoreText: { fontSize: 11, fontWeight: '700', fontFamily: 'Inter_700Bold' },
   simReasons: { fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: 'Inter_400Regular', marginTop: 2 },
   simSavings: { fontSize: 12, color: colors.teal, fontFamily: 'Inter_700Bold', marginTop: 2 },
+  rerunCard: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  rerunBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(93,202,165,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(93,202,165,0.25)',
+    borderRadius: 12,
+  },
+  rerunBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.teal,
+    fontFamily: 'Inter_700Bold',
+  },
 });
