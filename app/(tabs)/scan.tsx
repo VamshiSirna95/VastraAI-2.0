@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { CameraView, useCameraPermissions, type CameraView as CameraViewType } from 'expo-camera';
 import * as FileSystem from 'expo-file-system';
+import * as ImagePicker from 'expo-image-picker';
 import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
 import { colors } from '../../constants/theme';
 import { hexToRgba } from '../../components/ModuleCard';
@@ -141,33 +142,70 @@ function CornerBracket({ pos, color }: { pos: CornerPos; color: string }) {
 
 // ── Detection float ───────────────────────────────────────────────────────────
 
-function DetectionFloat({ pulseAnim, detection }: { pulseAnim: Animated.Value; detection: AIDetectionResult | null }) {
-  const pills: { label: string; color: string }[] = [];
-  if (detection && detection.confidence > 0) {
-    if (detection.garment_type) pills.push({ label: detection.garment_type, color: colors.teal });
-    if (detection.primary_color) pills.push({ label: detection.primary_color, color: colors.red });
-    if (detection.pattern) pills.push({ label: detection.pattern, color: colors.purple });
-    if (detection.fabric) pills.push({ label: detection.fabric, color: colors.pink });
-    if (detection.work_type) pills.push({ label: detection.work_type, color: colors.blue });
-    if (detection.occasion) pills.push({ label: detection.occasion, color: colors.amber });
+type DetectionState = {
+  status: 'idle' | 'detecting' | 'done' | 'failed';
+  attributes?: AIDetectionResult;
+};
+
+function DetectionFloat({ pulseAnim, detectionState }: { pulseAnim: Animated.Value; detectionState: DetectionState }) {
+  if (detectionState.status === 'idle') return null;
+
+  if (detectionState.status === 'detecting') {
+    return (
+      <View style={styles.detectionFloat}>
+        <View style={styles.detectionHeader}>
+          <Animated.View style={[styles.pulseDot, { opacity: pulseAnim }]} />
+          <Text style={styles.detectionLabel}>Detecting...</Text>
+        </View>
+        <View style={styles.pillsRow}>
+          <View style={[styles.attrPill, { backgroundColor: hexToRgba(colors.teal, 0.18) }]}>
+            <Text style={styles.attrPillText}>Detecting...</Text>
+          </View>
+        </View>
+      </View>
+    );
   }
+
+  if (detectionState.status === 'failed') {
+    return (
+      <View style={styles.detectionFloat}>
+        <View style={styles.detectionHeader}>
+          <Animated.View style={[styles.pulseDot, { opacity: pulseAnim }]} />
+          <Text style={styles.detectionLabel}>Detection failed</Text>
+        </View>
+        <View style={styles.pillsRow}>
+          <View style={[styles.attrPill, { backgroundColor: hexToRgba(colors.red, 0.18) }]}>
+            <Text style={styles.attrPillText}>AI failed — will retry on save</Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  const det = detectionState.attributes;
+  const pills: { label: string; color: string }[] = [];
+  if (det && det.confidence > 0) {
+    if (det.garment_type) pills.push({ label: det.garment_type, color: colors.teal });
+    if (det.primary_color) pills.push({ label: det.primary_color, color: colors.red });
+    if (det.pattern) pills.push({ label: det.pattern, color: colors.purple });
+    if (det.fabric) pills.push({ label: det.fabric, color: colors.pink });
+    if (det.work_type) pills.push({ label: det.work_type, color: colors.blue });
+    if (det.occasion) pills.push({ label: det.occasion, color: colors.amber });
+  }
+  if (pills.length === 0) return null;
 
   return (
     <View style={styles.detectionFloat}>
       <View style={styles.detectionHeader}>
         <Animated.View style={[styles.pulseDot, { opacity: pulseAnim }]} />
-        <Text style={styles.detectionLabel}>{pills.length > 0 ? 'AI detected' : 'Waiting for AI...'}</Text>
+        <Text style={styles.detectionLabel}>AI detected</Text>
       </View>
       <View style={styles.pillsRow}>
-        {pills.length > 0 ? pills.map((p) => (
+        {pills.map((p) => (
           <View key={p.label} style={[styles.attrPill, { backgroundColor: hexToRgba(p.color, 0.18) }]}>
             <Text style={styles.attrPillText}>{p.label}</Text>
           </View>
-        )) : (
-          <View style={[styles.attrPill, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
-            <Text style={styles.attrPillText}>Waiting for AI...</Text>
-          </View>
-        )}
+        ))}
       </View>
     </View>
   );
@@ -269,7 +307,7 @@ export default function ScanScreen() {
   const [analyzing, setAnalyzing] = useState(false);
   const [detectedAttrs, setDetectedAttrs] = useState<string[]>([]);
   const [reviewPhoto, setReviewPhoto] = useState<string | null>(null);
-  const [liveDetection, setLiveDetection] = useState<AIDetectionResult | null>(null);
+  const [detectionState, setDetectionState] = useState<DetectionState>({ status: 'idle' });
 
   // Batch mode state
   const [batchProducts, setBatchProducts] = useState<string[]>([]);
@@ -443,8 +481,11 @@ export default function ScanScreen() {
         return;
       }
 
+      setDetectionState({ status: 'detecting' });
       const result: AIDetectionResult = await detectAttributes(destUri);
-      setLiveDetection(result);
+      setDetectionState(result.status === 'failed'
+        ? { status: 'failed' }
+        : { status: 'done', attributes: result });
 
       const attrs: string[] = [];
       if (result.garment_type) attrs.push(result.garment_type);
@@ -488,7 +529,12 @@ export default function ScanScreen() {
       await addProductPhoto(productId, destUri, 'main', true);
 
       // Fire-and-forget AI detection
-      detectAttributes(destUri).then(r => setLiveDetection(r)).catch(() => {});
+      setDetectionState({ status: 'detecting' });
+      detectAttributes(destUri)
+        .then((r) => setDetectionState(r.status === 'failed'
+          ? { status: 'failed' }
+          : { status: 'done', attributes: r }))
+        .catch(() => setDetectionState({ status: 'failed' }));
 
       setBatchProducts((prev) => [...prev, productId]);
 
@@ -502,6 +548,23 @@ export default function ScanScreen() {
 
   const handleBatchDone = () => {
     router.push('/(tabs)/orders');
+  };
+
+  const handleGalleryPick = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') return;
+    const pickerResult = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: 'images' as const,
+      quality: 0.8,
+    });
+    if (!pickerResult.canceled && pickerResult.assets[0]) {
+      const uri = pickerResult.assets[0].uri;
+      if (isBatchMode) {
+        await processBatchCapture(uri);
+      } else {
+        await processNormalCapture(uri);
+      }
+    }
   };
 
   const frameColor = isBatchMode ? colors.amber : colors.teal;
@@ -523,6 +586,7 @@ export default function ScanScreen() {
           style={StyleSheet.absoluteFill}
           facing={facing}
           flash={flashMode}
+          ratio="4:3"
           onBarcodeScanned={activeMode === 'Tag' ? handleBarcodeScanned : undefined}
           barcodeScannerSettings={activeMode === 'Tag' ? {
             barcodeTypes: ['ean13', 'ean8', 'code128', 'code39', 'qr', 'upc_a', 'upc_e'],
@@ -545,7 +609,7 @@ export default function ScanScreen() {
               return (
                 <TouchableOpacity
                   key={mode}
-                  onPress={() => { setActiveMode(mode); setLiveDetection(null); }}
+                  onPress={() => { setActiveMode(mode); setDetectionState({ status: 'idle' }); }}
                   style={[styles.modePill, active && styles.modePillActive]}
                 >
                   <Text style={[styles.modePillText, active && styles.modePillTextActive]}>
@@ -576,7 +640,7 @@ export default function ScanScreen() {
               <CornerBracket pos="bl" color={frameColor} />
               <CornerBracket pos="br" color={frameColor} />
               <View style={styles.detectionFloatWrapper}>
-                <DetectionFloat pulseAnim={pulseAnim} detection={liveDetection} />
+                <DetectionFloat pulseAnim={pulseAnim} detectionState={detectionState} />
               </View>
             </View>
 
