@@ -498,8 +498,9 @@ export default function ScanScreen() {
       setAnalyzing(false);
 
       router.push({
-        pathname: `/product/${productId}` as `/product/${string}`,
+        pathname: '/product/[id]',
         params: {
+          id: productId,
           ai_garment_type: result.garment_type ?? '',
           ai_primary_color: result.primary_color ?? '',
           ai_secondary_color: result.secondary_color ?? '',

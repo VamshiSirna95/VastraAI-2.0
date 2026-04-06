@@ -244,8 +244,9 @@ export default function ProductDetailScreen() {
           <TouchableOpacity
             style={styles.editBtn}
             onPress={() => router.push({
-              pathname: `/product/edit/${id}` as `/product/edit/${string}`,
+              pathname: '/product/edit/[id]',
               params: {
+                id: id,
                 ai_garment_type: params.ai_garment_type ?? '',
                 ai_primary_color: params.ai_primary_color ?? '',
                 ai_secondary_color: params.ai_secondary_color ?? '',

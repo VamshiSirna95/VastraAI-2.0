@@ -85,9 +85,9 @@ export default function NotificationsScreen() {
     } else if (n.reference_type === 'product' && n.reference_id) {
       router.push({ pathname: '/product/[id]', params: { id: n.reference_id } });
     } else if (n.reference_type === 'demand') {
-      router.push('/demand/index');
+      router.push('/demand');
     } else if (n.reference_type === 'transfer') {
-      router.push('/stock/index');
+      router.push('/stock');
     }
   };
 
