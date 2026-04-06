@@ -115,6 +115,17 @@ function GalleryIcon({ color }: { color: string }) {
   );
 }
 
+function BatchEnrichIcon({ color }: { color: string }) {
+  return (
+    <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+      <Rect x={2} y={2} width={9} height={9} rx={1.5} stroke={color} strokeWidth={1.8} />
+      <Rect x={13} y={2} width={9} height={9} rx={1.5} stroke={color} strokeWidth={1.8} />
+      <Rect x={2} y={13} width={9} height={9} rx={1.5} stroke={color} strokeWidth={1.8} />
+      <Path d="M16 13v6M13 16h6" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 // ── Corner bracket ────────────────────────────────────────────────────────────
 
 type CornerPos = 'tl' | 'tr' | 'bl' | 'br';
@@ -693,10 +704,16 @@ export default function ScanScreen() {
               </Text>
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={styles.bottomSideBtn} onPress={handleGalleryPick}>
-              <GalleryIcon color="rgba(255,255,255,0.4)" />
-              <Text style={styles.bottomBtnLabel}>Gallery</Text>
-            </TouchableOpacity>
+            <View style={styles.bottomLeftGroup}>
+              <TouchableOpacity style={styles.bottomSideBtn} onPress={handleGalleryPick}>
+                <GalleryIcon color="rgba(255,255,255,0.4)" />
+                <Text style={styles.bottomBtnLabel}>Gallery</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.bottomSideBtn} onPress={() => router.push('/enrich/batch')}>
+                <BatchEnrichIcon color="rgba(255,255,255,0.4)" />
+                <Text style={styles.bottomBtnLabel}>Batch</Text>
+              </TouchableOpacity>
+            </View>
           )}
 
           <TouchableOpacity
@@ -861,6 +878,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     justifyContent: 'space-between', paddingHorizontal: 40,
   },
+  bottomLeftGroup: { flexDirection: 'row', gap: 16, alignItems: 'center' },
   bottomSideBtn: { alignItems: 'center', gap: 4 },
   bottomBtnLabel: { fontSize: 11, color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter_400Regular' },
   batchDoneBtn: {

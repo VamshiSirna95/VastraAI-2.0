@@ -33,7 +33,7 @@ export async function destroyDatabase(): Promise<void> {
   } catch {}
 }
 
-const CURRENT_DB_VERSION = 23;
+const CURRENT_DB_VERSION = 24;
 
 async function addCol(table: string, col: string, def: string): Promise<void> {
   try { await getDb().execAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`); } catch { /* already exists */ }
@@ -112,6 +112,11 @@ async function runMigrations(): Promise<void> {
   // ── V23: add ai_status column to products ────────────────────────────────
   if (currentVersion < 23) {
     await addCol('products', 'ai_status', "TEXT DEFAULT 'pending'");
+  }
+
+  // ── V24: add ai_batch_id column to products ───────────────────────────────
+  if (currentVersion < 24) {
+    await addCol('products', 'ai_batch_id', 'TEXT');
   }
 
   // Store new version
@@ -209,8 +214,8 @@ export async function createProduct(product: Partial<Product>): Promise<string> 
       primary_color, secondary_color, pattern, fabric, work_type,
       occasion, season, sleeve, neck, fit, length,
       notes, voice_note_uri, voice_note_transcript, ai_confidence,
-      ai_detected, ai_overrides, status, ai_status
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ai_detected, ai_overrides, status, ai_status, ai_batch_id
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       id,
       product.barcode ?? null,
@@ -239,6 +244,7 @@ export async function createProduct(product: Partial<Product>): Promise<string> 
       product.ai_overrides ?? null,
       product.status ?? 'draft',
       product.ai_status ?? 'pending',
+      product.ai_batch_id ?? null,
     ]
   );
   return id;

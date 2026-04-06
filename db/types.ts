@@ -25,6 +25,7 @@ export interface Product {
   ai_detected?: number;
   ai_overrides?: string;
   ai_status?: 'pending' | 'running' | 'success' | 'failed' | 'manual';
+  ai_batch_id?: string;
   status: 'draft' | 'enriched' | 'in_po' | 'ordered' | 'received' | 'in_store';
   created_at: string;
   updated_at: string;

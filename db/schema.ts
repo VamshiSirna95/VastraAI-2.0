@@ -25,6 +25,7 @@ export const CREATE_TABLES = [
     voice_note_transcript TEXT,
     ai_confidence REAL,
     ai_status TEXT DEFAULT 'pending',
+    ai_batch_id TEXT,
     status TEXT DEFAULT 'draft',
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
