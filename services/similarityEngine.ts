@@ -7,6 +7,8 @@ export interface SimilarityMatch {
   product: Product & { vendor_name?: string };
   score: number;           // 0.0 to 1.0
   matchReasons: string[];  // ["Same color", "Similar pattern", "Same vendor"]
+  matchedAttributes: number;   // count of non-zero contributions
+  totalAttributes: number;     // count of attributes available to compare
   priceDiff?: number;      // positive = cheaper match found
   vendorName?: string;
 }
@@ -49,56 +51,78 @@ export async function findSimilarProducts(
   );
   if (!source) return [];
 
-  // Get all other products with their vendor names
+  // Garment type is a HARD FILTER — cannot match without knowing type
+  if (!source.garment_type) return [];
+
+  // Filter candidates by same garment_type in SQL
   const candidates = await db.getAllAsync<Product & { vendor_name?: string }>(
     `SELECT p.*, v.name as vendor_name
      FROM products p
      LEFT JOIN vendors v ON v.id = p.vendor_id
-     WHERE p.id != ?`,
-    [productId]
+     WHERE p.id != ? AND p.garment_type = ?`,
+    [productId, source.garment_type]
   );
 
   const matches: SimilarityMatch[] = candidates.map((candidate) => {
     let score = 0;
+    let matchedAttributes = 0;
+    let totalAttributes = 0;
     const reasons: string[] = [];
 
-    // Garment type match (30% weight)
-    if (candidate.garment_type && source.garment_type &&
-        candidate.garment_type === source.garment_type) {
-      score += 0.30;
-      reasons.push('Same type');
-    }
-
-    // Color match (25% weight)
-    if (candidate.primary_color && source.primary_color) {
-      if (candidate.primary_color.toLowerCase() === source.primary_color.toLowerCase()) {
-        score += 0.25;
-        reasons.push('Same color');
-      } else if (areSimilarColors(candidate.primary_color, source.primary_color)) {
-        score += 0.15;
-        reasons.push('Similar color');
+    // Color: 35% exact, 20% similar family
+    if (source.primary_color) {
+      totalAttributes++;
+      if (candidate.primary_color) {
+        if (candidate.primary_color.toLowerCase() === source.primary_color.toLowerCase()) {
+          score += 0.35;
+          matchedAttributes++;
+          reasons.push('Same color');
+        } else if (areSimilarColors(candidate.primary_color, source.primary_color)) {
+          score += 0.20;
+          matchedAttributes++;
+          reasons.push('Similar color');
+        }
       }
     }
 
-    // Pattern match (20% weight)
-    if (candidate.pattern && source.pattern &&
-        candidate.pattern === source.pattern) {
-      score += 0.20;
-      reasons.push('Same pattern');
+    // Pattern: 25%
+    if (source.pattern) {
+      totalAttributes++;
+      if (candidate.pattern && candidate.pattern === source.pattern) {
+        score += 0.25;
+        matchedAttributes++;
+        reasons.push('Same pattern');
+      }
     }
 
-    // Fabric match (15% weight)
-    if (candidate.fabric && source.fabric &&
-        candidate.fabric === source.fabric) {
-      score += 0.15;
-      reasons.push('Same fabric');
+    // Fabric: 20%
+    if (source.fabric) {
+      totalAttributes++;
+      if (candidate.fabric && candidate.fabric === source.fabric) {
+        score += 0.20;
+        matchedAttributes++;
+        reasons.push('Same fabric');
+      }
     }
 
-    // Occasion match (10% weight)
-    if (candidate.occasion && source.occasion &&
-        candidate.occasion === source.occasion) {
-      score += 0.10;
-      reasons.push('Same occasion');
+    // Work type: 10%
+    if (source.work_type) {
+      totalAttributes++;
+      if (candidate.work_type && candidate.work_type === source.work_type) {
+        score += 0.10;
+        matchedAttributes++;
+        reasons.push('Same work type');
+      }
+    }
+
+    // Occasion: 10%
+    if (source.occasion) {
+      totalAttributes++;
+      if (candidate.occasion && candidate.occasion === source.occasion) {
+        score += 0.10;
+        matchedAttributes++;
+        reasons.push('Same occasion');
+      }
     }
 
     const priceDiff =
@@ -110,13 +134,15 @@ export async function findSimilarProducts(
       product: candidate,
       score,
       matchReasons: reasons,
+      matchedAttributes,
+      totalAttributes,
       priceDiff,
       vendorName: candidate.vendor_name,
     };
   });
 
   return matches
-    .filter((m) => m.score >= 0.4)
+    .filter((m) => m.score >= 0.5)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 }
@@ -127,7 +153,7 @@ export async function runProactiveSimilarityCheck(productId: string): Promise<vo
   try {
     const matches = await findSimilarProducts(productId, 5);
     for (const match of matches) {
-      if (match.priceDiff != null && match.priceDiff > 0 && match.score >= 0.6) {
+      if (match.priceDiff != null && match.priceDiff > 0 && match.score >= 0.7) {
         const savings = match.priceDiff;
         await createNotification(
           'similarity',
