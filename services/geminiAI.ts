@@ -35,17 +35,6 @@ export async function setGeminiApiKey(key: string): Promise<void> {
   await AsyncStorage.setItem('gemini_api_key', key);
 }
 
-export async function getAIPriorityOrder(): Promise<'gemini_first' | 'ollama_first'> {
-  const val = await AsyncStorage.getItem('ai_priority_order');
-  return val === 'ollama_first' ? 'ollama_first' : 'gemini_first';
-}
-
-export async function setAIPriorityOrder(
-  order: 'gemini_first' | 'ollama_first',
-): Promise<void> {
-  await AsyncStorage.setItem('ai_priority_order', order);
-}
-
 // ── Core API call ─────────────────────────────────────────────────────────────
 
 export async function callGemini(

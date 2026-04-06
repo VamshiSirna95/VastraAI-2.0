@@ -1,9 +1,7 @@
-import { tryOllamaDetection } from './ollama';
 import { tryOnDeviceDetection } from './ondevice';
 import {
   detectAttributesWithGemini,
   getGeminiApiKey,
-  getAIPriorityOrder,
 } from './geminiAI';
 
 export interface AIDetectionResult {
@@ -17,7 +15,7 @@ export interface AIDetectionResult {
   sleeve?: string;
   neck?: string;
   confidence: number;
-  source: 'gemini' | 'ollama' | 'on-device' | 'manual';
+  source: 'gemini' | 'on-device' | 'manual';
   status: 'success' | 'failed';
   reason?: 'timeout' | 'error';
   message?: string;
@@ -35,7 +33,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 async function runDetection(
   imageUri: string,
   apiKey: string | null,
-  priority: string,
 ): Promise<AIDetectionResult> {
   const tryGemini = async (): Promise<AIDetectionResult | null> => {
     if (!apiKey) return null;
@@ -61,25 +58,8 @@ async function runDetection(
     return null;
   };
 
-  const tryOllama = async (): Promise<AIDetectionResult | null> => {
-    try {
-      const r = await tryOllamaDetection(imageUri);
-      if (r) return { ...r, source: 'ollama', status: 'success' };
-    } catch {}
-    return null;
-  };
-
-  if (priority === 'ollama_first') {
-    const ollamaResult = await tryOllama();
-    if (ollamaResult) return ollamaResult;
-    const geminiResult = await tryGemini();
-    if (geminiResult) return geminiResult;
-  } else {
-    const geminiResult = await tryGemini();
-    if (geminiResult) return geminiResult;
-    const ollamaResult = await tryOllama();
-    if (ollamaResult) return ollamaResult;
-  }
+  const geminiResult = await tryGemini();
+  if (geminiResult) return geminiResult;
 
   try {
     const onDeviceResult = await tryOnDeviceDetection(imageUri);
@@ -90,10 +70,7 @@ async function runDetection(
 }
 
 export async function detectAttributes(imageUri: string): Promise<AIDetectionResult> {
-  const [apiKey, priority] = await Promise.all([
-    getGeminiApiKey(),
-    getAIPriorityOrder(),
-  ]);
+  const apiKey = await getGeminiApiKey();
 
   const delays = [2000, 4000, 8000];
   let lastError: unknown;
@@ -101,7 +78,7 @@ export async function detectAttributes(imageUri: string): Promise<AIDetectionRes
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       console.log(`AI detection attempt ${attempt}/3 for ${imageUri.split('/').pop() ?? imageUri}`);
-      const result = await withTimeout(runDetection(imageUri, apiKey, priority), 30000);
+      const result = await withTimeout(runDetection(imageUri, apiKey), 30000);
       return result;
     } catch (e) {
       lastError = e;

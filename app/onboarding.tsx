@@ -8,7 +8,6 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors } from '../constants/theme';
 import { createUser, createStore } from '../db/database';
-import { setOllamaUrl, testConnection } from '../services/ollama';
 import GlassInput from '../components/ui/GlassInput';
 import PinInput from '../components/PinInput';
 
@@ -18,8 +17,6 @@ const SEED_STORES = [
   'KMF Main', 'KMF Kukatpally', 'KMF Dilsukhnagar',
   'KMF Ameerpet', 'KMF Secunderabad', 'KMF Malakpet', 'KMF KPHB',
 ];
-
-type OllamaStatus = 'idle' | 'testing' | 'ok' | 'fail';
 
 function PageDots({ current, total }: { current: number; total: number }) {
   return (
@@ -54,11 +51,6 @@ export default function OnboardingScreen() {
 
   // Page 4 — Stores
   const [stores, setStores] = useState<string[]>([...SEED_STORES]);
-
-  // Page 5 — AI
-  const [ollamaUrlInput, setOllamaUrlInput] = useState('http://192.168.1.100:11434');
-  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>('idle');
-  const [ollamaError, setOllamaError] = useState('');
 
   // Completion
   const [completing, setCompleting] = useState(false);
@@ -114,31 +106,10 @@ export default function OnboardingScreen() {
     setStores([...stores, '']);
   };
 
-  const handleTestOllama = async () => {
-    setOllamaStatus('testing');
-    setOllamaError('');
-    try {
-      await setOllamaUrl(ollamaUrlInput.trim());
-      const result = await testConnection();
-      if (result.connected) {
-        setOllamaStatus('ok');
-      } else {
-        setOllamaStatus('fail');
-        setOllamaError(result.error ?? 'Connection failed');
-      }
-    } catch (e: unknown) {
-      setOllamaStatus('fail');
-      setOllamaError(e instanceof Error ? e.message : 'Unknown error');
-    }
-  };
-
   const handleLaunch = async () => {
     if (completing) return;
     setCompleting(true);
     try {
-      // Save Ollama URL
-      await setOllamaUrl(ollamaUrlInput.trim());
-
       // Save business name
       await AsyncStorage.setItem('business_name', bizName.trim());
 
@@ -168,17 +139,6 @@ export default function OnboardingScreen() {
       setCompleting(false);
     }
   };
-
-  const ollamaStatusText =
-    ollamaStatus === 'testing' ? 'Testing connection…'
-    : ollamaStatus === 'ok' ? '✓ Connected!'
-    : ollamaStatus === 'fail' ? `Could not connect — ${ollamaError || 'you can set this up later in Settings'}`
-    : '';
-
-  const ollamaStatusColor: string =
-    ollamaStatus === 'ok' ? colors.teal
-    : ollamaStatus === 'fail' ? colors.red
-    : colors.amber;
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
@@ -337,45 +297,18 @@ export default function OnboardingScreen() {
             </ScrollView>
           </View>
 
-          {/* ── Page 5: AI Setup ─── */}
+          {/* ── Page 5: Launch ─── */}
           <View style={[styles.page, { width }]}>
             <ScrollView contentContainerStyle={styles.pageScroll} keyboardShouldPersistTaps="handled">
-              <Text style={styles.pageTitle}>Connect AI Engine</Text>
+              <Text style={styles.pageTitle}>You're all set!</Text>
               <Text style={styles.pageSubtitle}>
-                VASTRA uses AI to auto-detect garment attributes from photos.
+                VASTRA is ready. Add your Gemini API key in Settings → AI Engine for automatic garment detection.
               </Text>
               <View style={styles.aiInfoCard}>
                 <Text style={styles.aiInfoText}>
-                  Point to your local Ollama server to enable automatic garment detection. You can skip this and set it up later in Settings.
+                  Add a free Google Gemini API key from aistudio.google.com to enable AI-powered garment detection.
                 </Text>
               </View>
-              <View style={styles.formCard}>
-                <GlassInput
-                  label="Ollama Server URL"
-                  value={ollamaUrlInput}
-                  onChangeText={(v) => { setOllamaUrlInput(v); setOllamaStatus('idle'); }}
-                  placeholder="http://192.168.1.100:11434"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="url"
-                />
-              </View>
-
-              {ollamaStatusText ? (
-                <Text style={[styles.ollamaStatus, { color: ollamaStatusColor }]}>
-                  {ollamaStatusText}
-                </Text>
-              ) : null}
-
-              <TouchableOpacity
-                style={styles.testBtn}
-                onPress={handleTestOllama}
-                disabled={ollamaStatus === 'testing'}
-              >
-                {ollamaStatus === 'testing'
-                  ? <ActivityIndicator color={colors.teal} size="small" />
-                  : <Text style={styles.testBtnText}>Test Connection</Text>}
-              </TouchableOpacity>
 
               {completing ? (
                 <View style={styles.launchLoader}>
@@ -383,14 +316,9 @@ export default function OnboardingScreen() {
                   <Text style={styles.launchingText}>Setting up VASTRA…</Text>
                 </View>
               ) : (
-                <View style={styles.btnRow}>
-                  <TouchableOpacity style={styles.skipBtn} onPress={handleLaunch}>
-                    <Text style={styles.skipBtnText}>Skip — Use Manual Mode</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.launchBtn} onPress={handleLaunch}>
-                    <Text style={styles.launchBtnText}>Launch VASTRA →</Text>
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity style={styles.launchBtn} onPress={handleLaunch}>
+                  <Text style={styles.launchBtnText}>Launch VASTRA →</Text>
+                </TouchableOpacity>
               )}
             </ScrollView>
           </View>
@@ -501,9 +429,6 @@ const styles = StyleSheet.create({
   aiInfoText: {
     fontSize: 13, color: 'rgba(255,255,255,0.5)',
     fontFamily: 'Inter_400Regular', lineHeight: 18,
-  },
-  ollamaStatus: {
-    fontSize: 13, fontFamily: 'Inter_700Bold', textAlign: 'center', marginBottom: 12,
   },
   testBtn: {
     backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1,

@@ -13,10 +13,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Svg, { Path, Circle } from 'react-native-svg';
-import { getOllamaUrl, setOllamaUrl, testConnection } from '../../services/ollama';
 import {
   getGeminiApiKey, setGeminiApiKey, testGeminiConnection,
-  getAIPriorityOrder, setAIPriorityOrder,
 } from '../../services/geminiAI';
 import { getCurrentUser, logout } from '../../services/auth';
 import { getProductCount, getVendors, getStores, getDb, verifyPin, updateUserPin, getUnreadCount, getDeletedPOCount, getDbVersion, checkDataIntegrity } from '../../db/database';
@@ -139,20 +137,12 @@ export default function SettingsScreen() {
   // DB health
   const [dbVersion, setDbVersion] = useState(0);
 
-  // Ollama
-  const [ollamaUrl, setOllamaUrlState] = useState('');
-  const [connStatus, setConnStatus] = useState<ConnectionStatus>('idle');
-  const [connModel, setConnModel] = useState('');
-  const [connError, setConnError] = useState('');
-  const [savingUrl, setSavingUrl] = useState(false);
-
   // Gemini AI
   const [geminiKey, setGeminiKeyState] = useState('');
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [geminiStatus, setGeminiStatus] = useState<ConnectionStatus>('idle');
   const [geminiError, setGeminiError] = useState('');
   const [savingGemini, setSavingGemini] = useState(false);
-  const [aiPriority, setAiPriority] = useState<'gemini_first' | 'ollama_first'>('gemini_first');
 
   const [showSearch, setShowSearch] = useState(false);
 
@@ -164,9 +154,8 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     (async () => {
-      const [session, url, pc, vs, stores, unread, deletedPOs] = await Promise.all([
+      const [session, pc, vs, stores, unread, deletedPOs] = await Promise.all([
         getCurrentUser(),
-        getOllamaUrl().catch(() => ''),
         getProductCount(),
         getVendors(),
         getStores(false),
@@ -191,18 +180,12 @@ export default function SettingsScreen() {
         setUserPhone(session.phone);
         setUserId(session.userId);
       }
-      setOllamaUrlState(url);
       setProductCount(pc);
       setVendorCount(vs.length);
       setStoreCount(stores.length);
 
-      // Gemini + AI priority
-      const [gemKey, priority] = await Promise.all([
-        getGeminiApiKey(),
-        getAIPriorityOrder(),
-      ]);
+      const gemKey = await getGeminiApiKey();
       setGeminiKeyState(gemKey ?? '');
-      setAiPriority(priority);
     })();
   }, []);
 
@@ -233,43 +216,6 @@ export default function SettingsScreen() {
       setGeminiStatus('idle');
     } finally {
       setSavingGemini(false);
-    }
-  };
-
-  const handleToggleAIPriority = async () => {
-    const next: 'gemini_first' | 'ollama_first' = aiPriority === 'gemini_first' ? 'ollama_first' : 'gemini_first';
-    await setAIPriorityOrder(next);
-    setAiPriority(next);
-  };
-
-  // ── Ollama ─────────────────────────────────────────────────────────────────
-
-  const handleTestConnection = async () => {
-    setConnStatus('testing');
-    setConnModel('');
-    setConnError('');
-    try {
-      const result = await testConnection();
-      if (result.connected) {
-        setConnStatus('connected');
-        setConnModel(result.model ?? 'unknown');
-      } else {
-        setConnStatus('failed');
-        setConnError(result.error ?? 'Connection refused');
-      }
-    } catch (e: unknown) {
-      setConnStatus('failed');
-      setConnError(e instanceof Error ? e.message : 'Unknown error');
-    }
-  };
-
-  const handleSaveUrl = async () => {
-    setSavingUrl(true);
-    try {
-      await setOllamaUrl(ollamaUrl.trim());
-      setConnStatus('idle');
-    } finally {
-      setSavingUrl(false);
     }
   };
 
@@ -350,20 +296,6 @@ export default function SettingsScreen() {
       },
     ]);
   };
-
-  // ── Connection status helpers ──────────────────────────────────────────────
-
-  const connDotColor =
-    connStatus === 'idle' ? 'rgba(255,255,255,0.2)'
-    : connStatus === 'testing' ? colors.amber
-    : connStatus === 'connected' ? colors.teal
-    : colors.red;
-
-  const connStatusText =
-    connStatus === 'idle' ? 'Not tested'
-    : connStatus === 'testing' ? 'Testing…'
-    : connStatus === 'connected' ? `Connected — model: ${connModel}`
-    : `Connection failed — ${connError}`;
 
   const roleColor = ROLE_COLORS[userRole] ?? colors.amber;
 
@@ -542,69 +474,14 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          <View style={styles.divider} />
-
-          {/* Ollama card */}
-          <View style={styles.aiSubCard}>
-            <View style={styles.aiSubHeader}>
-              <StatusDot color={connStatus === 'connected' ? colors.teal : 'rgba(255,255,255,0.15)'} />
-              <Text style={styles.aiSubTitle}>Ollama (Offline/Enterprise)</Text>
-            </View>
-            <Text style={styles.aiSubInfo}>For bulk processing without internet.</Text>
-
-            <GlassInput
-              label="Server URL"
-              value={ollamaUrl}
-              onChangeText={setOllamaUrlState}
-              placeholder="http://192.168.1.100:11434"
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-            />
-
-            <View style={styles.connStatusRow}>
-              <StatusDot color={connDotColor} />
-              <Text style={styles.connStatusText}>{connStatusText}</Text>
-              {connStatus === 'testing' && <ActivityIndicator size="small" color={colors.amber} style={styles.connSpinner} />}
-            </View>
-
-            <View style={styles.aiButtonsRow}>
-              <TouchableOpacity style={styles.testBtn} onPress={handleTestConnection} disabled={connStatus === 'testing'}>
-                <Text style={styles.testBtnText}>Test Connection</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.saveUrlBtn, savingUrl && styles.saveBtnDisabled]} onPress={handleSaveUrl} disabled={savingUrl}>
-                <Text style={styles.saveUrlBtnText}>{savingUrl ? 'Saving…' : 'Save'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
         </Section>
 
         {/* ── Detection Cascade ─── */}
         <Section label="DETECTION CASCADE">
-          <Text style={styles.cascadeInfo}>
-            {aiPriority === 'gemini_first'
-              ? 'VASTRA tries Gemini first, then Ollama, then manual entry.'
-              : 'VASTRA tries Ollama first, then Gemini, then manual entry.'}
-          </Text>
-          {aiPriority === 'gemini_first' ? (
-            <>
-              <CascadeRow dotColor={geminiStatus === 'connected' ? colors.teal : geminiKey ? colors.amber : 'rgba(255,255,255,0.2)'} label="1. Google Gemini" badge={geminiStatus === 'connected' ? 'Connected' : geminiKey ? 'Key saved' : 'Not set'} badgeColor={geminiStatus === 'connected' ? colors.teal : geminiKey ? colors.amber : 'rgba(255,255,255,0.3)'} />
-              <CascadeRow dotColor={connStatus === 'connected' ? colors.teal : 'rgba(255,255,255,0.2)'} label="2. Ollama Server" badge={connStatus === 'connected' ? 'Connected' : 'Offline'} badgeColor={connStatus === 'connected' ? colors.teal : 'rgba(255,255,255,0.3)'} />
-            </>
-          ) : (
-            <>
-              <CascadeRow dotColor={connStatus === 'connected' ? colors.teal : 'rgba(255,255,255,0.2)'} label="1. Ollama Server" badge={connStatus === 'connected' ? 'Connected' : 'Offline'} badgeColor={connStatus === 'connected' ? colors.teal : 'rgba(255,255,255,0.3)'} />
-              <CascadeRow dotColor={geminiStatus === 'connected' ? colors.teal : geminiKey ? colors.amber : 'rgba(255,255,255,0.2)'} label="2. Google Gemini" badge={geminiStatus === 'connected' ? 'Connected' : geminiKey ? 'Key saved' : 'Not set'} badgeColor={geminiStatus === 'connected' ? colors.teal : geminiKey ? colors.amber : 'rgba(255,255,255,0.3)'} />
-            </>
-          )}
-          <CascadeRow dotColor={colors.blue} label="On-Device AI" badge="Active" badgeColor={colors.blue} />
-          <CascadeRow dotColor={colors.amber} label="Manual Entry" badge="Always available" badgeColor={colors.amber} />
-
-          <TouchableOpacity style={styles.priorityToggleBtn} onPress={handleToggleAIPriority}>
-            <Text style={styles.priorityToggleText}>
-              Switch to {aiPriority === 'gemini_first' ? 'Ollama-first' : 'Gemini-first'} mode
-            </Text>
-          </TouchableOpacity>
+          <Text style={styles.cascadeInfo}>VASTRA tries Gemini first, then on-device AI, then manual entry.</Text>
+          <CascadeRow dotColor={geminiStatus === 'connected' ? colors.teal : geminiKey ? colors.amber : 'rgba(255,255,255,0.2)'} label="1. Google Gemini" badge={geminiStatus === 'connected' ? 'Connected' : geminiKey ? 'Key saved' : 'Not set'} badgeColor={geminiStatus === 'connected' ? colors.teal : geminiKey ? colors.amber : 'rgba(255,255,255,0.3)'} />
+          <CascadeRow dotColor={colors.blue} label="2. On-Device AI" badge="Active" badgeColor={colors.blue} />
+          <CascadeRow dotColor={colors.amber} label="3. Manual Entry" badge="Always available" badgeColor={colors.amber} />
         </Section>
 
         {/* ── Data Management ─── */}
@@ -1057,7 +934,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
   },
 
-  // Ollama connection
   connStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
